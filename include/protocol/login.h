@@ -21,4 +21,12 @@ void RecvLoginError(struct Connection*, const uint8_t*);
 void RecvLoginError2(struct Connection*, const uint8_t*);
 void RecvGameLogin(struct Connection*, const uint8_t*);
 
+void RecvLoginRoleInfo(struct Connection*, const uint8_t*);
+
+// These are temporarily 
+void RecvMagicGateDoEvent(struct Connection*, const uint8_t*);
+
+void RecvTDInfo(struct Connection*, const uint8_t*);
+void RecvTDTriggerInfo(struct Connection*, const uint8_t*);
+
 #endif

@@ -14,4 +14,22 @@ static void ResourceCommandHandler(
     const char *name
 );
 
+void BalanceCommandHandler(
+	Connection *c,
+	const char *player_name,
+	const char *message
+);
+
+void AbortCommandHandler(
+	Connection *c,
+	const char *player_name,
+	const char *message
+);
+
+void StatusCommandHandler(
+	Connection *c,
+	const char *player_name,
+	const char *message
+);
+
 #endif

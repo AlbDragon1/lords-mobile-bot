@@ -4,6 +4,33 @@
 #include "connection.h"
 #include "log.h"
 
+void SendStartBuilding(Connection *c,
+                       uint16_t position_id,
+                       uint16_t build_id,
+                       uint8_t operation_type)
+{
+    c->size = 2;
+
+    write_u16(c->data + c->size, _MSG_REQUEST_BUILDBEGIN);
+    c->size += 2;
+
+    write_u32(c->data + c->size, ++c->protocol.seq_id);
+    c->size += 4;
+
+    write_u16(c->data + c->size, position_id);
+    c->size += 2;
+
+    write_u16(c->data + c->size, build_id);
+    c->size += 2;
+
+    write_u8(c->data + c->size, operation_type);
+    c->size += 1;
+
+    write_u16(c->data, c->size);
+
+    send_packet(c, true);
+}
+
 bool IsBuilding(uint16_t build_id)
 {
     switch (build_id)
@@ -89,9 +116,29 @@ void RecvAllBuildData(Connection *c, const uint8_t *data)
 		
 		printf("\n");
 		*/
+		// SendStartBuilding(c, c->building[i].position_id,  c->building[i].build_id, kUpgrade);
+		
 		
 	}
 	
 	c->supply_capacity += GetTradingPostSupplyCapacity(trading_post_lv);
+	
+}
+
+
+
+void RecvBuildingError(Connection *c, const uint8_t *data) {
+	uint16_t offset = 0;
+	
+	uint8_t b = read_u8(data + offset); offset += 1;
+	
+	printf("RecvBuildingError: %u\n", b);
+	
+	// Big Endian 
+	uint16_t value1 = ((uint16_t)data[0] << 8) | data[1];  // Big-endian
+	// Little endian 
+	uint16_t value2 = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+	
+	printf("hex: 0x%04x\n", value1);
 	
 }

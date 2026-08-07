@@ -126,15 +126,16 @@ bool ConnectServer(Connection *c, const char *ip, unsigned short port)
 
 bool ConnectGateway(Connection *c)
 {
-    struct sockaddr_in addr;
-
-    c->sock = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (c->sock == -1) {
-        LOGE("socket() failed\n");
-        return false;
-    }
-
+	struct sockaddr_in addr;
+	
+	c->sock = socket(AF_INET, SOCK_STREAM, 0);
+	
+	if (c->sock == -1) {
+		// LOGE("socket() failed\n");
+		return false;
+	}
+	
+	
     /* Set non-blocking mode */
     int flags = fcntl(c->sock, F_GETFL, 0);
 
@@ -193,4 +194,9 @@ bool epoll_register(int epoll_fd, Connection *c, uint32_t events)
     ev.events = events;
     ev.data.ptr = c;
     return epoll_ctl(epoll_fd, EPOLL_CTL_ADD, c->sock, &ev) != -1;
+}
+
+bool epoll_unregister(int epoll_fd, Connection *c)
+{
+    return epoll_ctl(epoll_fd, EPOLL_CTL_DEL, c->sock, NULL) != -1;
 }

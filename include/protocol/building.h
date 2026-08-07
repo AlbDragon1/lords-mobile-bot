@@ -6,8 +6,64 @@
 
 struct Connection;
 
+
+typedef enum {
+	kUndefined,
+	kBuild,
+	kUpgrade
+} BuildingOperationType;
+
+/*
+enum BuildingId : ushort
+{
+	None,
+	Logging,
+	Quarry,
+	Mine,
+	Farm,
+	Commerce,
+	Barrack,
+	Hospital,
+	Stronghold,
+	Storehouse,
+	Academy,
+	WarHall,
+	Wall,
+	WatchTower,
+	Embassy,
+	Forge,
+	Treasury,
+	Market,
+	Prison,
+	Altar,
+	PetHall,
+	Stonehenge,
+	ContractTower,
+	PetTraining,
+	MoonStone,
+	Artifact,
+	MagicPowerMine,
+	MagicPowerBarrack,
+	HeroChallenge = 100,
+	Arena,
+	Shelter,
+	Ambush,
+	BlackMarket,
+	NpcReward,
+	Gamble,
+	Monopoly,
+	TreasureSurprise,
+	Valhalla,
+	TowerDefense,
+	Relics,
+	CombatTower,
+	Max
+}
+*/
+
 typedef enum
 {
+	BUILD_NONE,
     BUILD_TIMBER        = 1,
     BUILD_STONE         = 2,
     BUILD_ORE           = 3,
@@ -59,7 +115,9 @@ uint32_t GetTradingPostSupplyCapacity(uint8_t level);
 
 const char *GetBuildingName(uint16_t build_id);
 
+void SendStartBuilding(struct Connection*, uint16_t, uint16_t, uint8_t);
 void RecvAllBuildData(struct Connection*, const uint8_t*);
 
+void RecvBuildingError(struct Connection*, const uint8_t*);
 
 #endif

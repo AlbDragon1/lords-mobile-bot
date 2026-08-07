@@ -22,6 +22,7 @@
 #include <ctype.h>
 
 #include "log.h"
+#include "connection.h"
 
 static CommandChannel ParseCommandChannel(const char *value)
 {
@@ -141,6 +142,7 @@ uint64_t parse_number_u64(const char *str) {
 }
 
 static bool ParserConfig(Connection *c, const char *key, const char *value) {
+	/*
 	// gateway server 
 	if (strcmp(key, "server.addr") == 0) {
 		strncpy(c->gateway_server.addr, value, 16);
@@ -172,6 +174,7 @@ static bool ParserConfig(Connection *c, const char *key, const char *value) {
 		c->app.language_code = (uint8_t)strtoul(value, NULL, 10);
 		return true;
 	}
+	*/
 	
 	// login 
 	if (strcmp(key, "account.igg_id") == 0) {
@@ -207,6 +210,85 @@ static bool ParserConfig(Connection *c, const char *key, const char *value) {
 		}
 		return true;
 	}
+	
+	// Bank enable/disable
+	if (strcmp(key, "bank.enabled") == 0) {
+		c->bank.enabled = (strcmp(value, "true") == 0);
+		return true;
+	}
+	
+	// Resource types allowed for delivery.
+	if (strcmp(key, "bank.send_food") == 0) {
+		c->bank.allowed[0] = (strcmp(value, "true") == 0);
+		return true;
+	}
+	
+	if (strcmp(key, "bank.send_rock") == 0) {
+		c->bank.allowed[1] = (strcmp(value, "true") == 0);
+		return true;
+	}
+	
+	if (strcmp(key, "bank.send_wood") == 0) {
+		c->bank.allowed[2] = (strcmp(value, "true") == 0);
+		return true;
+	}
+	
+	if (strcmp(key, "bank.send_ore") == 0) {
+		c->bank.allowed[3] = (strcmp(value, "true") == 0);
+		return true;
+	}
+	
+	if (strcmp(key, "bank.send_gold") == 0) {
+		c->bank.allowed[4] = (strcmp(value, "true") == 0);
+		return true;
+	}
+	
+	// Resource reserve.
+	// These values are reserved for the bot's own use. The bot will not send
+	// resources that would reduce the balance below these amounts.
+	if (strcmp(key, "bank.reserve_food") == 0) {
+		c->bank.reserve[0]  = (uint32_t)parse_number_u64(value);
+		// printf("cargo_ship.reserve_food: %lu\n", c->market.reserve.food);
+		return true;
+	}
+	
+	if (strcmp(key, "bank.reserve_rock") == 0) {
+		c->bank.reserve[1]  = (uint32_t)parse_number_u64(value);
+		return true;
+	}
+	
+	if (strcmp(key, "bank.reserve_wood") == 0) {
+		c->bank.reserve[2]  = (uint32_t)parse_number_u64(value);
+		return true;
+	}
+	
+	if (strcmp(key, "bank.reserve_ore") == 0) {
+		c->bank.reserve[3]  = (uint32_t)parse_number_u64(value);
+		return true;
+	}
+	
+	if (strcmp(key, "bank.reserve_gold") == 0) {
+		c->bank.reserve[4]  = (uint32_t)parse_number_u64(value);
+		return true;
+	}
+	
+	// Maximum map distance (tiles) for resource delivery.
+	if (strcmp(key, "bank.max_delivery_distance") == 0) {
+		c->bank.max_delivery_distance = (uint16_t)strtoul(value, NULL, 10);
+		return true;
+	}
+	
+	/*
+	Not implemented yet
+	# Automatically use resource items from the bag if the available
+	# resources are insufficient to fulfill a banking command.
+	bank.use_bag_rss  = false
+	bank.use_bag_food = false
+	bank.use_bag_rock = false
+	bank.use_bag_wood = false
+	bank.use_bag_ore  = false
+	bank.use_bag_gold = false
+	*/ 
 	
 	
 	if (strcmp(key, "alliance.auto_help") == 0) {
@@ -570,7 +652,27 @@ ProgramConfig LoadProgramConfig(const char *filepath)
 			program.bot_count++;
 			continue;
 		}
+		
+		// auto reconnect 
+		if (strcmp(key, "reconnect.enabled") == 0) {
+			program.auto_reconnect  = (strncmp(value, "true", 4) == 0);
+			continue;
+		}
+		
+		//
+		if (strcmp(key, "reconnect.delay") == 0) {
+			program.reconnect_delay  = (uint16_t)strtoul(value, NULL, 10);
+			continue;
+		}
+		
+		if (strcmp(key, "reconnect.max_attempts") == 0) {
+			program.reconnect_max_attempts  = (uint16_t)strtoul(value, NULL, 10);
+			continue;
+		}
+		
+		
     }
+    
 
     fclose(fp);
     return program;
@@ -605,16 +707,12 @@ bool CreateDefaultProgramConfig(const char *filename)
 		"client.language_code = 1\n\n"
 		
 		"# Auto reconnect bot after network disconnection\n"
-"# Login failures will not trigger reconnect\n"
-"reconnect.enabled = true\n"
-"\n"
-"# Delay between reconnect attempts (seconds, reserved for future use)\n"
-"reconnect.delay = 5\n"
-"\n"
-"# Maximum reconnect attempts (-1 = unlimited)\n"
-"reconnect.max_attempts = -1\n\n"
+		"# Login failures will not trigger reconnect\n"
+		"reconnect.enabled = true\n"
+		"\n"
+		"# Maximum reconnect attempts (0 = unlimited)\n"
+		"reconnect.max_attempts = 10\n\n"
 		
-
 		"# Directory used to store bot data (logs, databases, cache, etc.)\n"
 		"data.path = lords-mobile-bot/data/\n\n"
 
@@ -775,8 +873,7 @@ bool CreateDefaultConfig(const char *filename)
 		"cargo_ship.trade_for_rock  = false\n"
 		"cargo_ship.trade_for_wood  = false\n"
 		"cargo_ship.trade_for_ore   = false\n"
-		"cargo_ship.trade_for_gold  = false\n"
-		
+		"cargo_ship.trade_for_gold  = false\n\n"
 	);
 
     fclose(fp);

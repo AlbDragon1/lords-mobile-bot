@@ -106,9 +106,11 @@ void RecvResourceHelpReportInfo(Connection *c, const uint8_t *data) {
 	uint64_t cc = read_u64(data + offset); offset += 8;
 	uint8_t result = read_u8(data + offset); offset += 1;// it's results 1 means received from player! and 0 means bank sending the resource
 	
+	/*
 	printf("aa: %u\n", aa);
 	printf("bb: %u\n", bb);
 	printf("cc: %lu\n", cc);
+	*/
 	
 	char player_name[13] = {0};
 	read_raw(player_name, data + offset, 13); offset += 13;
@@ -123,6 +125,7 @@ void RecvResourceHelpReportInfo(Connection *c, const uint8_t *data) {
 		update_balance(player_name, res, dd);
 	}*/
 	
+	/*
 	printf("Result: %u\n", result);
 	printf("player: %s\n", player_name);
 				
@@ -131,6 +134,7 @@ void RecvResourceHelpReportInfo(Connection *c, const uint8_t *data) {
 	printf("wood: %u\n",   stock[2]);
 	printf("ore:  %u\n",   stock[3]);
 	printf("gold: %u\n\n", stock[4]);
+	*/
 }
 
 
@@ -201,7 +205,8 @@ void RecvSHelp(Connection *c, const uint8_t *data) {
 	char DesPlayerName[13];
 	read_raw(DesPlayerName, data + offset, 13); offset += 13;
 	
-	// c->transfer.cur_marches++;
+	if (c->player.current_marches >= c->player.max_marches) return;
+	
 	c->player.current_marches++;
 	c->transfer.state = TRANSFER_SEND_MARCH;
 }
@@ -248,13 +253,17 @@ void RecvMarchData(Connection *c, const uint8_t *data) {
 	c->player.max_marches     = read_u8(data + offset); offset += 1;
 	c->player.current_marches = read_u8(data + offset); offset += 1;
 	
-	
+	/* LOGI("March update: current=%u max=%u\n",
+     c->player.current_marches,
+     c->player.max_marches);
+     */
+     
 	// There is more data include troops and location 
-	
+	/*
 	printf("\n\nRecvMarchData\n");
 	printf("max_marches: %u\n", c->player.max_marches);
 	printf("current_matches: %u\n\n", c->player.current_marches);
-	
+	*/
 	// c->transfer.max_marches = c->player.max_marches;
 	
 	return;

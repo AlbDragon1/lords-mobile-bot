@@ -17,6 +17,8 @@
 
 #include "protocol/building.h"
 
+#include "protocol/barrack.h"
+
 /*
  * Global packet dispatcher.
  *
@@ -51,6 +53,7 @@ void DispatcherInit(void)
 	dispatcher[_MSG_GAMESERVER_LOGINLOG]         = RecvGameLogin;
 	dispatcher[_MSG_LOGIN_LOGINERRORRESP]        = RecvLoginError;
 	dispatcher[_MSG_CLIENT_LOGINTOLRESP]         = RecvLoginError2;
+	dispatcher[_MSG_LOGIN_ROLEINFO]              = RecvLoginRoleInfo;
 	dispatcher[_MSG_RESP_CHATMESSAGE]            = RecvChatMessage;
 	dispatcher[_MSG_RESP_ACTIVE]                 = RecvHeartBeat;
 	dispatcher[_MSG_RESP_RESOURCEINFO]           = RecvResources;
@@ -63,7 +66,8 @@ void DispatcherInit(void)
 	
 	// RecvHospitalInfo
 	dispatcher[_MSG_HOSPITAL_HOSPITALINFO]       = RecvWoundedTroopData;
-	// dispatcher[_MSG_RESP_ARMYGROUPINFO_]         = RecvArmyGroupInfo;
+	
+	dispatcher[_MSG_RESP_ARMYGROUPINFO_]         = RecvArmyGroupInfo;
 	
 	// dispatcher[_MSG_RESP_BROCAST_NPC_WAR_BEGIN]  = RecvDarknestBroadcast;
 	
@@ -106,6 +110,15 @@ void DispatcherInit(void)
 	dispatcher[_MSG_RESP_ALLYPOINT] =  RecvAllyPoint;
 	
 	dispatcher[_MSG_MARCH_MARCHEVENTDATA] = RecvMarchData;
+	
+	dispatcher[_MSG_RESP_BUILDINGERROR] = RecvBuildingError;
+	
+	
+	dispatcher[_MSG_RESP_MAGIC_GATE_DO_EVENT_RESULT] = RecvMagicGateDoEvent;
+	
+	dispatcher[_MSG_RESP_TD_INFO] = RecvTDInfo;
+	dispatcher[_MSG_RESP_TD_TRIGGERINFO] = RecvTDTriggerInfo;
+	
 }
 
 

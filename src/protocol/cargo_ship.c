@@ -47,6 +47,8 @@ void RequestBuyCargoShipItemSmartUse(Connection *c, SmartUseList smart_use, uint
 
 bool ShouldBuyItem(const Connection *c, const CargoShipItem *item)
 {
+	return 1;
+	
 	switch (item->item_id) {
 		case BLAZING_EMBER: 
 			return c->cargo_ship.trade_for.blazing_ember;
@@ -117,6 +119,9 @@ bool ShouldBuyItem(const Connection *c, const CargoShipItem *item)
 	return false;
 }
 
+/*
+ *
+ */
 bool CanSpendResource(Connection *c, uint8_t type)
 {
 	return c->cargo_ship.settings.spend[type];
@@ -124,9 +129,7 @@ bool CanSpendResource(Connection *c, uint8_t type)
 
 bool CanAffordCargoShipItem(Connection *c, const CargoShipItem *item)
 {
-	return c->resource.stock[item->resource_kind] >= 
-		c->cargo_ship.reserve[item->resource_kind] + 
-		item->resource_count;
+	return c->resource.stock[item->resource_kind] >= c->cargo_ship.reserve[item->resource_kind] + item->resource_count;
 }
 
 void EvaluateCargoShipTrade(Connection *c)
@@ -154,7 +157,7 @@ void EvaluateCargoShipTrade(Connection *c)
 		}
 		
 		if (!ShouldBuyItem(c, item)) {
-			printf("[MARKET] Slot %d -> SKIP (unwanted item %u)\n", i, item->item_id);
+			LOGI("Cargo Ship slot %d: skipped unwanted item %u\n", i + 1, item->item_id);
 			continue;
 		}
 		
@@ -267,7 +270,7 @@ void RecvCargoShipData(Connection *c, const uint8_t *data) {
 	
 	// printf("[MARKET RESET] ");
 	
-	LOGI("[%lu] Cargo Ship resets in %s\n", c->auth.igg_id, FormatTime(c->cargo_ship.refresh_time - c->server_time));
+	LOGI("Cargo Ship resets in %s\n", FormatTime(c->cargo_ship.refresh_time - c->server_time));
 	
 	TryEvaluateCargoShipTrade(c);
 }
@@ -294,7 +297,7 @@ void CargoShipTick(Connection *c)
 		return;
 	
 	if (c->server_time > c->cargo_ship.refresh_time) {
-		printf("[MARKET] Refresh expired, requesting new data\n");
+		printf("[INFO ] Cargo Ship Refreshing, requesting new data\n");
 		RequestCargoShipInfo(c, 0);
 		c->cargo_ship.loaded = false;
 	}

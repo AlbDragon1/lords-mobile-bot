@@ -2,6 +2,8 @@
 #include "protocol/resource.h"
 #include "protocol/alliance.h"
 
+#include "protocol/mail.h"
+
 #include "connection.h"
 
 #include <time.h>
@@ -30,7 +32,10 @@ uint32_t CalculateTransferAmount(Connection *c)
 }
 
 void SendResourceMarch(Connection *c) {
-	if (c->player.current_marches >= c->player.max_marches) return;
+	if (c->player.current_marches >= c->player.max_marches) {
+		c->transfer.state = TRANSFER_WAIT_MARCH;
+		return;
+	}
 	
 	if (c->transfer.remaining == 0) {
 		c->transfer.state = TRANSFER_COMPLETE;
@@ -72,17 +77,18 @@ void ResourceTransferTick(Connection *c)
 			RequestAllyPoint(c, c->transfer.target_name);
 			c->transfer.timeout = time(NULL) + 10;   // wait up to 10 seconds
 			c->transfer.state = TRANSFER_WAIT_TARGET;
-			printf("called TRANSFER_FIND_TARGET\n");
+			// printf("called TRANSFER_FIND_TARGET\n");
 			break;
 		case TRANSFER_WAIT_TARGET: 
 			if (time(NULL) >= c->transfer.timeout) {
 				c->transfer.state = TRANSFER_FAILED;
-				printf("called TRANSFER_WAIT_TARGET lookup timed out\n");
+				// printf("called TRANSFER_WAIT_TARGET lookup timed out\n");
 			}
 			break;
 		case TRANSFER_SEND_MARCH:
 			SendResourceMarch(c);
-			printf("called TRANSFER_SEND_MARCH\n");
+			// printf("called TRANSFER_SEND_MARCH\n");
+			// printf("[INFO ] max march: %u, cur march: %u\n", c->player.max_marches, c->player.current_marches);
 			break;
 		case TRANSFER_WAIT_MARCH:
 			/* Wait until march returns */
@@ -92,6 +98,16 @@ void ResourceTransferTick(Connection *c)
 			c->transfer.state = TRANSFER_IDLE;
 			break;
 		case TRANSFER_FAILED:
+			c->transfer.state = TRANSFER_IDLE;
+			break;
+		case TRANSFER_FAILED_TOO_FAR:
+			RequestSendMailFmt(
+				c,
+				c->transfer.issued_name,
+				"Transfer Failed",
+				"Target is too far away. Maximum delivery distance is %u tiles.",
+				c->bank.max_delivery_distance
+			);
 			c->transfer.state = TRANSFER_IDLE;
 			break;
 		default:

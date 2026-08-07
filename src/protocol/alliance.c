@@ -5,10 +5,10 @@
 #include "log.h"
 
 #include "bot/command.h"
-
-
-
 #include "map_point.h"
+
+#include "bot/transfer.h" // for state enum
+#include "utility.h" // for distance, math etc
 
 void RequestAllyPoint(Connection *c, const char *name) 
 {
@@ -96,11 +96,6 @@ void RecvAllianceMemberNeedsHelp(Connection *c, const uint8_t *data) {
 	c->help.event_data_lv  = read_u8(data + offset);           offset += 1;
 	c->help.already_helped = read_u8(data + offset);           offset += 1;
 	c->help.help_max       = read_u8(data + offset);           offset += 1;
-	
-	printf("[GUILD] record=%u event=%u player=%s\n",
-       c->help.record_sn,
-       c->help.event_id,
-       c->help.player_name);
        
 	if (c->alliance.auto_help) {
 		RequestHelpAllianceMember(c, 1, &c->help.record_sn);
@@ -290,6 +285,7 @@ void AllianceMemberJoined(Connection *c)
 {
 	// printf("[GUILD] %s joined the Guild!\n", c->chat.player_name);
 	
+	return;
 	
 	char msg[128];
 	snprintf(msg, sizeof(msg), 
@@ -335,19 +331,31 @@ void RecvAllyPoint(Connection *c, const uint8_t *data)
 	uint16_t zone_id  = read_u16(data + offset); offset += 2;
 	uint8_t  point_id = read_u8(data + offset);  offset += 1;
 	
-	map_pos_t pos;
+	map_pos_t pos1, pos2;
 	
 	switch (status) {
 		case 0: 
-			pos = getTileMapPosbyPointCode(zone_id, point_id);
+			pos1 = getTileMapPosbyPointCode(zone_id, point_id);
+			pos2 = getTileMapPosbyPointCode(c->player.zone_id, c->player.point_id);
+			
+			int dist = distance(pos1.x, pos1.y, pos2.x, pos2.y);
 			
 			printf(
-				"Player found: Zone=%u Point=%u (%u,%u)\n",
+				"Player found: Zone=%u Point=%u (%u,%u) Distance=%d\n",
 				zone_id,
 				point_id,
-				pos.x,
-				pos.y
+				pos1.x,
+				pos1.y,
+				dist
 			);
+			
+			printf("Bot:    (%d, %d)\n", pos2.x, pos2.y);
+printf("Target: (%d, %d)\n", pos1.x, pos1.y);
+			
+			if (dist > c->bank.max_delivery_distance) {
+				c->transfer.state = TRANSFER_FAILED_TOO_FAR;
+				break;
+			}
 			
 			if (c->transfer.state == TRANSFER_WAIT_TARGET) {
 				c->transfer.zone_id  = zone_id;

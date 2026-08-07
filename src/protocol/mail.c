@@ -123,6 +123,7 @@ void RecvMailInfo(Connection *c, const uint8_t *data)
 	
 	memcpy(mail->content, data + offset, content_len);
 	
+	/*
 	printf("\n");
 	printf("Sender: [%s] %s\n", mail->sender_tag, mail->sender_name);
 	
@@ -131,6 +132,7 @@ void RecvMailInfo(Connection *c, const uint8_t *data)
 	printf("Title: %s\n", mail->title);
 	
 	printf("Content: %s\n", mail->content);
+	*/
 	
 	command_handler(c, mail->sender_name, mail->content);
 }

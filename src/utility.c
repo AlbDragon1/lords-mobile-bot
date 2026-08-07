@@ -6,6 +6,7 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <math.h>
 #include "log.h"
 
 void FormatNumber(uint64_t value, char *buffer, size_t size)
@@ -224,4 +225,19 @@ const char *GetResourceName(ResourceType type)
         default:
             return "unknown";
     }
+}
+
+/*
+int distance(int32_t x1, int32_t y1, int32_t x2, int32_t y2)
+{
+    int32_t dx = x2 - x1;
+    int32_t dy = y2 - y1;
+    return dx * dx + dy * dy;
+}
+*/
+
+int distance(int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
+    int32_t dx = x2 - x1;
+    int32_t dy = y2 - y1;
+    return (int)(sqrt((double)(dx * dx + dy * dy)) + 0.5); // rounds instead of truncating
 }

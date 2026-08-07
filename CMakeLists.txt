@@ -31,10 +31,12 @@ add_executable(client
     
     src/protocol/building.c
     
+    src/protocol/barrack.c
+    
     src/bot/tick.c
     src/bot/command.c
     src/bot/transfer.c
-    
+    src/bot/bank.c
     # src/bot/http_server.c
 )
 
@@ -49,3 +51,6 @@ if(DEBUG_LOG)
 endif()
 
 target_include_directories(client PRIVATE include)
+
+target_link_libraries(client PRIVATE m)
+

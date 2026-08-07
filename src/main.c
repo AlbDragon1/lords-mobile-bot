@@ -12,11 +12,6 @@
 #include "net_rw.h"
 #include "packet_enum.h"
 
-// 
-
-// included mapping for debugging purpose 
-// #include "packet_map.h"
-
 
 #include "map_point.h"
 #include "items.h"
@@ -35,6 +30,9 @@
 #include "bot/tick.h"
 
 #include "packet_map.h"
+
+
+#include "bot/bank.h"
 
 #define BUFFER_SIZE 4096
 
@@ -65,7 +63,21 @@ void ProcessConnection(Connection *c)
 			s->packet_type,
 			s->packet_size
 		);
+		*/
 		
+		/*
+		if (s->packet_type == _MSG_RESP_TD_INFO || s->packet_type == _MSG_RESP_TD_TRIGGERINFO) {
+			DumpData(get_packet_name(s->packet_type), s->buffer + s->parse_pos + 4, s->packet_size + 4);
+		}
+		
+		
+		if (s->packet_type == _MSG_MAGIC_GATE_DATA) {
+			DumpData(get_packet_name(s->packet_type), s->buffer + s->parse_pos + 4, s->packet_size + 4);
+		}
+		*/
+		
+		
+		/*
 		// dump_data(get_packet_name(s->packet_type), "", s->buffer + s->parse_pos + 4, s->packet_size + 4);
 		*/
 		
@@ -111,7 +123,9 @@ void ConnectionMaintain(Connection *c)
 	switch (c->state) {
 		case CONN_CONNECTED_GATEWAY:
 			LOGI("Gateway connected\n");
+			
 			RequestGuestLogIn(c);
+			
 			c->state = CONN_WAIT_GATEWAY_LOGIN;
 			
 			// remove epoll out writable , that trigger event continuously 
@@ -128,8 +142,6 @@ void ConnectionMaintain(Connection *c)
 			LOGI("Game server connected\n");
 			RequestLogIn(c);
 			RequestClientInitOver(c);
-			LOGI("Sending game login\n");
-			LOGI("Sending client init over\n");
 			// c->state = CONN_WAIT_GAME_LOGIN;
 			c->state = CONN_CONNECTED;
 			
@@ -144,6 +156,8 @@ void ConnectionMaintain(Connection *c)
 			if (epoll_ctl(epoll_fd, EPOLL_CTL_MOD, c->sock, &ev) == -1) {
 				LOGE("Failed to remove EPOLLOUT\n");
 			}
+			
+			c->reconnect_attempt = 0;
 			
 			break;
 		case CONN_GATEWAY_LOGIN_SUCCESS: 
@@ -181,6 +195,40 @@ void ConnectionMaintain(Connection *c)
 			epoll_ctl(epoll_fd, EPOLL_CTL_DEL, c->sock, NULL);
 			close(c->sock);
 			c->sock = -1;
+			break;
+		case CONN_DISCONNECTED:
+			break; // No auto reconnect 
+			if (time(NULL) >= c->reconnect_time) {
+				if (c->reconnect_max_attempts != 0 &&
+					c->reconnect_attempt >= c->reconnect_max_attempts) {
+					LOGE("Maximum reconnect attempts reached\n");
+					break;
+				}
+				
+				c->protocol.seq_id = 0;
+				c->stream.read_pos = 0;
+				c->stream.parse_pos = 0;
+				
+				memset(&c->stream, 0, sizeof(c->stream));
+				
+				if (ConnectServer(c, c->gateway_server.addr, c->gateway_server.port)) {
+					struct epoll_event ev = {0};
+					ev.events = EPOLLIN | EPOLLOUT;
+					ev.data.ptr = c;
+					
+					if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, c->sock, &ev) == -1) {
+						LOGE("Failed to register socket with epoll\n");
+						close(c->sock);
+						break;
+					}
+					
+					c->state = CONN_CONNECTING_GATEWAY;
+					LOGI("Reconnecting gateway server!\n");
+				} else {
+					LOGE("Failed to reconnect gateway\n");
+					c->reconnect_time = time(NULL) + 15;
+				}
+			}
 			break;
 		default:
 			break; // connected / logging in / running — nothing to do here 
@@ -232,6 +280,7 @@ int main(int argc, const char *argv[]) {
         return EXIT_FAILURE;
     }
 	
+	// Load main program configuration file 
 	ProgramConfig program = LoadProgramConfig(argv[1]);
 	
 	if (program.bot_count == 0) {
@@ -276,15 +325,15 @@ int main(int argc, const char *argv[]) {
 		client[i].app.version_patch = program.version_patch;
 		client[i].app.language_code = program.language_code;
 		
-		/*
-		// Not implemented yet
-		if (client[i].bank.enabled) {
-			LoadBank(&client[i]);
-		}
-		*/
+		strcpy(client[i].gateway_server.addr, program.server_addr);
+		client[i].gateway_server.port = program.server_port;
+		
+		client[i].reconnect_max_attempts = program.reconnect_max_attempts;
+		client[i].reconnect_attempt      = 0;
+		
 		client[i].state = CONN_DISCONNECTED;
 		
-		LOGI("Loaded bot configuration: %s\n", program.config_path[i]);
+		// LOGI("Loaded bot configuration: %s\n", program.config_path[i]);
 	}
 	
 	LOGI("data path: '%s'\n", program.data_path);
@@ -325,7 +374,7 @@ int main(int argc, const char *argv[]) {
 	}
 	
 	while (1) {
-		int n = epoll_wait(epoll_fd, events, 64, 15000);
+		int n = epoll_wait(epoll_fd, events, 64, 1000);
 		
 		if (n == -1) {
 			if (errno == EINTR)
@@ -341,6 +390,8 @@ int main(int argc, const char *argv[]) {
 			
 			if (events[i].events & (EPOLLERR | EPOLLHUP)) {
 				LOGE("Socket disconnected\n");
+				
+				c->reconnect_time = time(NULL) + 15;			
 				
 				epoll_ctl(epoll_fd, EPOLL_CTL_DEL, c->sock, NULL);
 				close(c->sock);
@@ -360,6 +411,8 @@ int main(int argc, const char *argv[]) {
 					&len) == -1 || err != 0) {
 					
 					LOGE("Connection failed\n");
+					
+					c->reconnect_time = time(NULL) + 15;
 					
 					epoll_ctl(epoll_fd, EPOLL_CTL_DEL, c->sock, NULL);
 					close(c->sock);
@@ -396,6 +449,8 @@ int main(int argc, const char *argv[]) {
 					close(c->sock);
 					c->sock = -1;
 					c->state = CONN_DISCONNECTED;
+					
+					c->reconnect_time = time(NULL) + 15;
 					
 					continue;
 				}

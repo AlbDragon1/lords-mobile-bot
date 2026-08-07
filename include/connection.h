@@ -36,7 +36,13 @@
 
 #include "protocol/mail.h"
 
+#include "protocol/barrack.h"
+
 #include "utility.h"
+
+#include "bot/bank.h"
+
+#include "bot/transfer.h"
 
 typedef enum {
 	EMS_Null,
@@ -348,11 +354,15 @@ typedef struct {
 typedef struct {
 	bool enabled;
 	
+	// no more used
 	bool send_food;
 	bool send_rock;
 	bool send_wood;
 	bool send_ore;
 	bool send_gold;
+	
+	// now using this instead of independent flags
+	uint8_t allowed[5];
 	
 	uint32_t reserve[5];
 	uint32_t max_delivery_distance;
@@ -457,16 +467,6 @@ typedef struct {
 	uint8_t point_id;
 	
 } HyperSettings;
-
-typedef struct {
-	bool loaded;
-	uint32_t total;
-	uint32_t infantry[4];
-	uint32_t cavalry[4];
-	uint32_t ranged[4];
-	uint32_t siege[4];
-	uint32_t t5_data[4];
-} TroopData;
 
 /*
 typedef struct {
@@ -686,41 +686,6 @@ typedef struct {
 	uint16_t enemy_home_kingdom;
 } Rally;
 
-
-typedef enum {
-    TRANSFER_IDLE,
-    TRANSFER_FIND_TARGET,
-    TRANSFER_WAIT_TARGET,
-    TRANSFER_SEND_MARCH,
-    TRANSFER_WAIT_MARCH,
-    TRANSFER_COMPLETE,
-    TRANSFER_FAILED
-} TransferState;
-
-
-typedef struct {
-	char issued_name[13]; // Who initiated resource command?
-    char target_name[13]; // Who will receive resource?
-    
-    uint8_t resource_type;
-    uint32_t stock[5];
-    
-    time_t timeout;
-    
-    uint8_t max_marches;
-    uint8_t cur_marches;
-    
-    uint32_t amount;
-    uint32_t remaining;
-
-    uint16_t zone_id;
-    uint8_t point_id;
-
-    TransferState state;
-} ResourceTransfer;
-
-
-
 typedef enum {
 	CONN_DISCONNECTED = 0,
 	
@@ -785,7 +750,7 @@ typedef struct Connection {
 	* Replace this with a compact tracked-item table that stores only the items
 	* required by the bot, significantly reducing per-connection memory usage.
 	*/
-	Item items[MAX_ITEM_COUNT];
+	// Item items[MAX_ITEM_COUNT];
 	bool items_loaded;
 	
 	
@@ -859,7 +824,7 @@ typedef struct Connection {
 	
 	AllianceInfo RoleAlliance;
 	
-	PlayerBank player_bank[1000];
+	// PlayerBank player_bank[1000];
 	
 	// ShieldSettings shield;
 	
@@ -898,11 +863,12 @@ typedef struct Connection {
 	AllianceMemberList alliance_member;
 	
 	bool auto_reconnect;
+	// uint16_t reconnect_delay;
 	uint32_t reconnect_max_attempts;
 	uint32_t reconnect_attempt;
+	time_t reconnect_time;
 	
-	
-	// BankData bank_data;
+	BankData bank_data;
 } Connection;
 
 /* API */
@@ -914,5 +880,6 @@ void reset_connection(Connection *c);
 bool ConnectGateway(Connection *c);
 bool ConnectServer(Connection *c, const char *ip, unsigned short port);
 bool epoll_register(int epoll_fd, Connection *c, uint32_t events);
+bool epoll_unregister(int epoll_fd, Connection *c);
 
 #endif

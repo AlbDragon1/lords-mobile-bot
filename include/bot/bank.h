@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+#define BANK_MAGIC   0x4B4E4142u  /* "BANK" in little-endian */
+#define BANK_VERSION 1u
+
 struct Connection;
 
 typedef struct {
@@ -18,10 +21,14 @@ typedef struct {
 
 typedef struct {
 	BankHeader header;
+	uint32_t capacity;
 	BankRecord *record;
 } BankData;
 
 void LoadBank(struct Connection*);
 void SaveBank(struct Connection*);
+
+BankRecord *BankFindRecord(struct Connection *c, const char *name);
+BankRecord *BankCreateRecord(struct Connection *c, const char *name);
 
 #endif
