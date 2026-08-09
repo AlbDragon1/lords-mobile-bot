@@ -193,30 +193,6 @@ Packet handlers use an O(1) dispatcher table instead of a large packet switch.
 
 ---
 
-## Build
-
-Linux is currently the primary supported platform.
-
-```bash
-git clone <repository>
-cd lords-mobile-bot
-
-git checkout dev
-
-./build.sh
-```
-
-Or with CMake:
-
-```bash
-mkdir build
-cd build
-cmake ..
-make
-```
-
----
-
 ## Development Status
 
 ### Networking
