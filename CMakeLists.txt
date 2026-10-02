@@ -14,6 +14,7 @@ add_executable(client
     src/map_point.c
     src/command.c
     src/config.c
+    src/reconnect.c
 )
 
 target_compile_definitions(client PRIVATE
@@ -35,6 +36,7 @@ if(LMBOT_BUILD_TESTS)
     add_executable(test_config
         tests/test_config.c
         src/config.c
+        src/reconnect.c
     )
     target_include_directories(test_config PRIVATE include)
 

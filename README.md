@@ -84,7 +84,7 @@ build.bat
 Or compile directly with GCC:
 
 ```bat
-gcc -O2 -Iinclude src\main.c src\connection.c src\log.c src\protocol.c src\des.c src\map_point.c src\command.c src\config.c -o client.exe -lws2_32
+gcc -O2 -Iinclude src\main.c src\connection.c src\log.c src\protocol.c src\des.c src\map_point.c src\command.c src\config.c src\reconnect.c -o client.exe -lws2_32
 ```
 
 The Windows build links against `ws2_32` (Winsock); CMake and `build.bat` handle
@@ -142,6 +142,13 @@ Run the bot:
 ```bash
 ./client config.cfg
 ```
+
+## Auto-Reconnect
+
+If the connection drops, the bot logs in again automatically with an increasing
+delay (5s, 10s, 20s, ... up to 5 minutes). If you log in to the same account on
+your phone, the bot waits 10 minutes before reconnecting. Press `Ctrl+C` to stop.
+See [docs/configuration.md](docs/configuration.md#auto-reconnect) for options.
 
 ## Chat Commands
 

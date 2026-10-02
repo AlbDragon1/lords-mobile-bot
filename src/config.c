@@ -230,9 +230,11 @@ static const BoolOption bool_options[] = {
 	OPTION("cargo_ship.spend_wood",                 market.settings.spend_wood),
 	OPTION("cargo_ship.spend_ore",                  market.settings.spend_ore),
 	OPTION("cargo_ship.spend_gold",                 market.settings.spend_gold),
+	
+	OPTION("reconnect.enabled",                     reconnect.enabled),
 };
 
-/* Resource amount options (accept K/M/B suffixes). */
+/* Numeric options: resource amounts (accept K/M/B suffixes) and durations in seconds. */
 typedef struct {
 	const char *key;
 	size_t offset;
@@ -251,6 +253,12 @@ static const AmountOption amount_options[] = {
 	OPTION("cargo_ship.reserve_wood",     market.reserve.wood),
 	OPTION("cargo_ship.reserve_ore",      market.reserve.ore),
 	OPTION("cargo_ship.reserve_gold",     market.reserve.gold),
+	
+	OPTION("reconnect.delay",             reconnect.delay),
+	OPTION("reconnect.max_delay",         reconnect.max_delay),
+	OPTION("reconnect.max_attempts",      reconnect.max_attempts),
+	OPTION("reconnect.kicked_delay",      reconnect.kicked_delay),
+	OPTION("reconnect.timeout",           reconnect.timeout),
 };
 
 #undef OPTION
@@ -372,6 +380,13 @@ static void ApplyDefaultConfig(Connection *c)
 	c->bot.command_output = COMMAND_CHANNEL_MAIL;
 	
 	c->bank.max_delivery_distance = 100;
+	
+	c->reconnect.enabled      = true;
+	c->reconnect.delay        = 5;
+	c->reconnect.max_delay    = 300;
+	c->reconnect.max_attempts = 0;
+	c->reconnect.kicked_delay = 600;
+	c->reconnect.timeout      = 90;
 }
 
 /* Make sure the options required to log in are present. */
@@ -391,6 +406,16 @@ static bool ValidateConfig(const Connection *c, const char *filename)
 	
 	if (c->auth.session_len == 0 || strcmp(c->auth.session, "YOUR_ACCESS_KEY_HERE") == 0) {
 		printf("%s: error: `account.access_key` is not set\n", filename);
+		ok = false;
+	}
+	
+	if (c->reconnect.delay == 0) {
+		printf("%s: error: `reconnect.delay` must be at least 1\n", filename);
+		ok = false;
+	}
+	
+	if (c->reconnect.timeout != 0 && c->reconnect.timeout < 30) {
+		printf("%s: error: `reconnect.timeout` must be 0 (disabled) or at least 30\n", filename);
 		ok = false;
 	}
 	

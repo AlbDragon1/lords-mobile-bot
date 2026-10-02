@@ -25,6 +25,9 @@
 #include "config.h"
 
 #include "version.h"
+#include "reconnect.h"
+
+#include <signal.h>
 
 #define SERVER_ADDR "192.243.44.63"
 #define SERVER_PORT 5999
@@ -116,15 +119,18 @@ void logger(Connection *c) {
 	
 }
 
-void ProcessConnection(Connection *c)
+SessionResult ProcessConnection(Connection *c)
 {
 	PacketStream *s = &c->stream;
 	
 	map_pos_t pos;
 	
-	time_t last_update = time(NULL);
+	c->last_recv = time(NULL);
 	
 	while (1) {
+		if (StopRequested())
+			return SESSION_STOPPED;
+		
 		// Tick 
 		BotTick(c);
 		
@@ -142,27 +148,39 @@ void ProcessConnection(Connection *c)
 		
 		if (n > 0) {
 			s->read_pos += n;
+			c->last_recv = time(NULL);
 		}
 		else if (n == 0) {
-			LOGI("Disconnected\n");
-			break;
+			LOGW("Server closed the connection\n");
+			return SESSION_DISCONNECTED;
 		}
 		else {
 			// non-blocking case
 #ifdef _WIN32
-			if (WSAGetLastError() == WSAEWOULDBLOCK) {
-				Sleep(1);
-				continue; // no more data right now
-			}
+			bool would_block = (WSAGetLastError() == WSAEWOULDBLOCK);
 #else
-			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			bool would_block = (errno == EAGAIN || errno == EWOULDBLOCK);
+#endif
+			if (would_block) {
+				// Nothing received for too long: the connection is dead.
+				if (c->reconnect.timeout && time(NULL) - c->last_recv >= (time_t)c->reconnect.timeout) {
+					LOGW("No data from server for %u seconds\n", c->reconnect.timeout);
+					return SESSION_TIMEOUT;
+				}
+#ifdef _WIN32
+				Sleep(1);
+#else
 				usleep(1000);
+#endif
 				continue; // no more data right now
 			}
-#endif
 
-			LOGE("Recv error\n");
-			break;
+#ifdef _WIN32
+			LOGW("Connection error (WSA %d)\n", WSAGetLastError());
+#else
+			LOGW("Connection error: %s\n", strerror(errno));
+#endif
+			return SESSION_DISCONNECTED;
 		}
 		
 		while (s->read_pos - s->parse_pos >= 4) {
@@ -187,25 +205,30 @@ void ProcessConnection(Connection *c)
 					HandleLoginValidate(c, s->buffer + s->parse_pos + 4, s->packet_size - 4);
 					// HandleClientGuestLogin(c, s->buffer + s->parse_pos + 4, packet_size - 4);
 					LOGI("Gateway Login success!\n");
-					LOGI("Gateway server disconnected\n");
 					disconnect(c);
-					return;
+					return SESSION_GATEWAY_OK;
 				case _MSG_GAMESERVER_LOGINLOG: 
 					// kind = read_u16(s->buffer + s->parse_pos + 4);
 					LOGI("Game login successful\n");
 					// ServerInitOver(c);
 					break;
-				case _MSG_LOGIN_LOGINERRORRESP: 
+				case _MSG_LOGIN_LOGINERRORRESP: {
+					uint8_t kind = read_u8(s->buffer + s->parse_pos + 4);
 					RecvLoginError(c, s->buffer + s->parse_pos + 4);
 					disconnect(c);
-					// printf("Login error\n");
-					return;
+					
+					if (kind == 110)   // client version outdated
+						return SESSION_FATAL;
+					if (kind == 9)     // logged in from another device
+						return SESSION_KICKED;
+					return SESSION_DISCONNECTED;
+				}
 				case _MSG_CLIENT_LOGINTOLRESP: 
 					// kind = read_i32(s->buffer + s->parse_pos + 4);
 					
-					LOGE("Bootstrap Login failed session expired: %d\n", 0/*kind*/);
+					LOGE("Bootstrap login failed: session expired, update account.access_key\n");
 					disconnect(c);
-					return;
+					return SESSION_FATAL;
 				case _MSG_RESP_ACTIVE: 
 					c->server_time = read_u64(s->buffer + s->parse_pos + 4);
 					break;
@@ -491,6 +514,20 @@ bool CreateDefaultConfig(const char *filename)
 		"client.version_patch = 308\n"
 		"client.language_code = 1\n\n"
 		
+		"# Auto-reconnect\n"
+		"# Reconnect automatically when the connection is lost.\n"
+		"reconnect.enabled = true\n"
+		"# First retry delay in seconds; doubles after each failure up to max_delay.\n"
+		"reconnect.delay = 5\n"
+		"reconnect.max_delay = 300\n"
+		"# Give up after this many failed attempts in a row (0 = never give up).\n"
+		"reconnect.max_attempts = 0\n"
+		"# Wait this long when the account is logged in from another device,\n"
+		"# so the bot does not keep kicking you off your phone.\n"
+		"reconnect.kicked_delay = 600\n"
+		"# Treat the connection as dead after this many seconds without data (0 = off).\n"
+		"reconnect.timeout = 90\n\n"
+		
 		"# Directory used to store bot data (logs, databases, cache, etc.).\n"
 		"data.path = ./lmbot/\n\n"
 		
@@ -618,7 +655,94 @@ bool CreateDefaultConfig(const char *filename)
     return true;
 }
 
+// Loaded configuration. Each session starts from a fresh copy of it so no
+// stale game state carries over between reconnects.
+static Connection config;
+static Connection client;
+
+static void HandleStopSignal(int sig)
+{
+	(void)sig;
+	RequestStop();
+}
+
+/* Start a new session from the configuration, keeping settings changed at runtime. */
+static void ResetSession(Connection *c)
+{
+	BotSettings bot = c->bot;
+	bool keep = c->auth.igg_id != 0; // first session has nothing to keep
+	
+	memcpy(c, &config, sizeof(*c));
+	c->sock = -1;
+	
+	// Admin may have been changed with $su
+	if (keep)
+		c->bot = bot;
+}
+
+/* One full login: gateway server, then game server. Returns why it ended. */
+static SessionResult RunSession(Connection *c)
+{
+	ResetSession(c);
+	
+	// Establish TCP connection to gateway server
+	c->sock = connect_server(c->gateway_server.addr, (unsigned short)c->gateway_server.port);
+	
+	if (c->sock == -1) {
+		LOGE("Failed to connect to %s:%u\n", c->gateway_server.addr, c->gateway_server.port);
+		return SESSION_DISCONNECTED;
+	}
+	
+	if (set_nonblocking(c) != 0) {
+		LOGE("set_nonblocking\n");
+	}
+	
+	LOGI("Connected gateway server: %s:%u\n", c->gateway_server.addr, c->gateway_server.port);
+	LOGI("Game client: v%u.%u.%u\n", c->app.version_major, c->app.version_minor, c->app.version_patch);
+	
+	RequestGuestLogIn(c);
+	
+	SessionResult result = ProcessConnection(c);
+	
+	if (result != SESSION_GATEWAY_OK)
+		return result;
+	
+	if (!c->lobby_login) {
+		LOGE("Login failed!\n");
+		return SESSION_DISCONNECTED;
+	}
+	
+	// Establish TCP connection to game server 
+	c->sock = connect_server(c->game_server.addr, (unsigned short)c->game_server.port);
+	
+	if (c->sock == -1) {
+		LOGE("Failed to connect game server %s:%u\n", c->game_server.addr, c->game_server.port);
+		return SESSION_DISCONNECTED;
+	}
+	
+	if (set_nonblocking(c) != 0) {
+		LOGE("set_nonblocking\n");
+	}
+	
+	LOGI("IGG ID: %lld\n", (long long)c->auth.igg_id);
+	LOGI("Connected game server: %s:%u\n", c->game_server.addr, c->game_server.port);
+	
+	// clear old buffer 
+	memset(&c->stream, 0, sizeof(c->stream));
+	
+	// Game login
+	LOGI("Logging game server\n");
+	RequestLogIn(c);
+	
+	RequestClientInitOver(c);
+	
+	return ProcessConnection(c);
+}
+
 int main(int argc, const char *argv[]) {
+	// Line-buffered output keeps log lines in order when redirected to a file.
+	setvbuf(stdout, NULL, _IOLBF, 0);
+	
 	if (argc < 2) {
 		PrintUsage();
 		return 0;
@@ -657,68 +781,63 @@ int main(int argc, const char *argv[]) {
         return EXIT_FAILURE;
     }
 	
-	Connection client = {0};
-	
-	// Configuration(&client);
-	
-	if (!LoadConfig(&client, argv[1])) {
+	if (!LoadConfig(&config, argv[1])) {
 		LOGE("Failed to load config\n");
 		return EXIT_FAILURE;
 	}
 	
 	LOGI("Configuration loaded\n");
 	
-	// Establish TCP connection to server and store socket descriptor in client
-	client.sock = connect_server(client.gateway_server.addr, client.gateway_server.port);
+	signal(SIGINT, HandleStopSignal);
+	signal(SIGTERM, HandleStopSignal);
 	
-	// Validate socket creation; -1 indicates connection failure
-	if (client.sock == -1) {
-		LOGE("Failed to connect to %s:%d\n", client.gateway_server.addr, client.gateway_server.port);
-		return EXIT_FAILURE;
-	}
+	const ReconnectSettings *rs = &config.reconnect;
+	uint32_t failures = 0;
 	
-	LOGI("Connected gateway server: %s:%u\n", client.gateway_server.addr, client.gateway_server.port);
-	LOGI("Game client: v%u.%u.%u\n", client.app.version_major, client.app.version_minor, client.app.version_patch);
-	
-	RequestGuestLogIn(&client);
+	while (1) {
+		time_t started = time(NULL);
+		SessionResult result = RunSession(&client);
 		
-	ProcessConnection(&client);
-	
-	if (!client.lobby_login) {
-		LOGE("Login failed!\n");
-		return EXIT_FAILURE;
+		disconnect(&client);
+		
+		if (result == SESSION_STOPPED || StopRequested()) {
+			LOGI("Stopped\n");
+			break;
+		}
+		
+		if (result == SESSION_FATAL) {
+			LOGE("Not reconnecting: fix the problem above and restart the bot\n");
+			return EXIT_FAILURE;
+		}
+		
+		if (!rs->enabled) {
+			LOGI("Session ended (%s); reconnect disabled\n", SessionResultName(result));
+			return EXIT_FAILURE;
+		}
+		
+		// A session that stayed up for a while counts as a success: reset the backoff.
+		if (time(NULL) - started >= 300)
+			failures = 0;
+		
+		failures++;
+		
+		if (rs->max_attempts && failures > rs->max_attempts) {
+			LOGE("Giving up after %u failed reconnect attempts\n", rs->max_attempts);
+			return EXIT_FAILURE;
+		}
+		
+		uint32_t delay = (result == SESSION_KICKED)
+			? rs->kicked_delay
+			: ReconnectDelay(rs, failures);
+		
+		LOGW("Session ended (%s). Reconnecting in %u seconds (attempt %u)...\n",
+			SessionResultName(result), delay, failures);
+		
+		if (!InterruptibleSleep(delay)) {
+			LOGI("Stopped\n");
+			break;
+		}
 	}
-	
-	// Establish TCP connection to game server 
-	client.sock = connect_server(client.game_server.addr, client.game_server.port);
-	
-	if (client.sock == -1) {
-		// LOGE("Failed to connect game server!");
-		LOGE("Failed to connect game server %s:%d\n", client.game_server.addr, client.game_server.port);
-		return EXIT_FAILURE;
-	}
-	
-	if (set_nonblocking(&client) != 0) {
-		LOGE("set_nonblocking\n");
-	}
-	
-	LOGI("IGG ID: %lu\n", client.auth.igg_id);
-	
-	LOGI("Connected game server: %s:%u\n", client.game_server.addr, client.game_server.port);
-	
-	// clear old buffer 
-	memset(&client.stream, 0, sizeof(client.stream));
-	
-	// Game login
-	LOGI("Logging game server\n");
-	RequestLogIn(&client);
-	
-	RequestClientInitOver(&client);
-	
-	// Handle 
-	ProcessConnection(&client);
-	
-	disconnect(&client);
 	
 	return 0;
 }

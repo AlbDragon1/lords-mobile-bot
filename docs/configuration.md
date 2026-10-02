@@ -95,6 +95,40 @@ client.language_code = 1
 
 ---
 
+## Auto-Reconnect
+
+The bot reconnects automatically when the connection drops, the server stops
+responding, or the game server closes the session.
+
+```cfg
+reconnect.enabled = true
+reconnect.delay = 5
+reconnect.max_delay = 300
+reconnect.max_attempts = 0
+reconnect.kicked_delay = 600
+reconnect.timeout = 90
+```
+
+| Option | Description |
+| --- | --- |
+| `reconnect.enabled` | Master switch. When `false`, the bot exits when the session ends. |
+| `reconnect.delay` | Seconds before the first retry. Doubles after each failed attempt (5, 10, 20, ...). |
+| `reconnect.max_delay` | Upper limit for the retry delay. |
+| `reconnect.max_attempts` | Give up after this many failures in a row. `0` retries forever. |
+| `reconnect.kicked_delay` | Seconds to wait when the account is logged in from another device, so the bot doesn't keep kicking you out while you play. |
+| `reconnect.timeout` | Seconds without any data from the server before the connection is considered dead. `0` disables it; otherwise at least `30`. |
+
+A session that stays connected for 5 minutes resets the backoff.
+
+The bot does **not** reconnect when retrying cannot help:
+
+- the client version is outdated (update `client.version_*`)
+- the access key has expired (update `account.access_key`)
+
+Press `Ctrl+C` to stop the bot at any time, including while it waits to reconnect.
+
+---
+
 ## Data Path
 
 Directory used to store bot data such as logs, databases, and cache.

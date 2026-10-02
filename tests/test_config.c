@@ -158,6 +158,56 @@ static void test_invalid_values(void)
 		"SHIELD_4H,SHIELD_4H,SHIELD_4H,SHIELD_4H,SHIELD_4H\n"));
 }
 
+static void test_reconnect_options(void)
+{
+	CHECK(LoadFromString(&c, ACCOUNT));
+	CHECK(c.reconnect.enabled);
+	CHECK(c.reconnect.delay == 5);
+	CHECK(c.reconnect.max_delay == 300);
+	CHECK(c.reconnect.max_attempts == 0);
+	CHECK(c.reconnect.kicked_delay == 600);
+	CHECK(c.reconnect.timeout == 90);
+	
+	CHECK(LoadFromString(&c, ACCOUNT
+		"reconnect.enabled = false\n"
+		"reconnect.delay = 2\n"
+		"reconnect.max_delay = 60\n"
+		"reconnect.max_attempts = 10\n"
+		"reconnect.kicked_delay = 1200\n"
+		"reconnect.timeout = 0\n"));
+	CHECK(!c.reconnect.enabled);
+	CHECK(c.reconnect.delay == 2);
+	CHECK(c.reconnect.max_delay == 60);
+	CHECK(c.reconnect.max_attempts == 10);
+	CHECK(c.reconnect.kicked_delay == 1200);
+	CHECK(c.reconnect.timeout == 0);
+	
+	CHECK(!LoadFromString(&c, ACCOUNT "reconnect.delay = 0\n"));
+	CHECK(!LoadFromString(&c, ACCOUNT "reconnect.timeout = 10\n"));
+}
+
+static void test_reconnect_delay(void)
+{
+	ReconnectSettings s = { .delay = 5, .max_delay = 300 };
+	
+	CHECK(ReconnectDelay(&s, 1) == 5);
+	CHECK(ReconnectDelay(&s, 2) == 10);
+	CHECK(ReconnectDelay(&s, 3) == 20);
+	CHECK(ReconnectDelay(&s, 6) == 160);
+	CHECK(ReconnectDelay(&s, 7) == 300);
+	CHECK(ReconnectDelay(&s, 1000) == 300);
+	
+	// max_delay below delay: never go under delay
+	ReconnectSettings low = { .delay = 30, .max_delay = 10 };
+	CHECK(ReconnectDelay(&low, 1) == 30);
+	CHECK(ReconnectDelay(&low, 5) == 30);
+	
+	// huge values must not overflow
+	ReconnectSettings big = { .delay = 3000000000u, .max_delay = 4000000000u };
+	CHECK(ReconnectDelay(&big, 2) == 4000000000u);
+	CHECK(ReconnectDelay(&big, 50) == 4000000000u);
+}
+
 static void test_unknown_key_is_warning(void)
 {
 	CHECK(LoadFromString(&c, ACCOUNT "some.future_option = 1\n"));
@@ -179,6 +229,8 @@ int main(void)
 	test_all_options();
 	test_shield_always_on_does_not_touch_enabled();
 	test_invalid_values();
+	test_reconnect_options();
+	test_reconnect_delay();
 	test_unknown_key_is_warning();
 	test_missing_account();
 	
