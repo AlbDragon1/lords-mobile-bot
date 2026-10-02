@@ -143,10 +143,13 @@ void RecvLoginError(Connection *c, const uint8_t *data) {
 	if (kind == 110) {
 		// [ERROR] Client version outdated. Required: 2.197.309
 		LOGE("UPDATE CLIENT VERSION\n");
+		c->end_reason = SESSION_FATAL;          // retrying can't help
 	} else if (kind == 9) {
 		LOGE("LOGGING FROM ANOTHER DEVICE errorCode: %u\n", kind);
+		c->end_reason = SESSION_KICKED;         // wait longer before retrying
 	} else {
 		LOGE("Bootstrap Login failed: %u\n", kind);
+		c->end_reason = SESSION_DISCONNECTED;   // retry with backoff
 	}
 	
 	c->state = CONN_GATEWAY_LOGIN_FAILED;
@@ -155,8 +158,9 @@ void RecvLoginError(Connection *c, const uint8_t *data) {
 void RecvLoginError2(Connection *c, const uint8_t *data) {
 	int32_t kind = read_i32(data);
 	
-	LOGE("Bootstrap Login failed session expired: %d\n", kind);
+	LOGE("Bootstrap login failed: session expired (%d), update account.access_key\n", kind);
 	
+	c->end_reason = SESSION_FATAL;
 	c->state = CONN_GATEWAY_LOGIN_FAILED;
 } 
 

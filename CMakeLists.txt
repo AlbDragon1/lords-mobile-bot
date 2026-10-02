@@ -13,6 +13,7 @@ add_executable(client
     src/map_point.c
     
     src/config.c
+    src/reconnect.c
     src/dispatcher.c
     src/utility.c
     
@@ -54,3 +55,19 @@ target_include_directories(client PRIVATE include)
 
 target_link_libraries(client PRIVATE m)
 
+# Unit tests (run with: ctest --test-dir build --output-on-failure)
+option(LMBOT_BUILD_TESTS "Build unit tests" ON)
+
+if(LMBOT_BUILD_TESTS)
+    enable_testing()
+
+    add_executable(test_config
+        tests/test_config.c
+        src/config.c
+        src/reconnect.c
+        src/log.c
+    )
+    target_include_directories(test_config PRIVATE include)
+
+    add_test(NAME config COMMAND test_config)
+endif()

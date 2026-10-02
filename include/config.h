@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "reconnect.h"
+
 struct Connection;
 
 typedef struct {
@@ -22,18 +24,16 @@ typedef struct {
 	
 	char config_path[256][256];
 	
-	bool auto_reconnect;
-	uint16_t reconnect_delay;
-	uint32_t reconnect_max_attempts;
-	uint32_t reconnect_attempt;
-	
-	
+	ReconnectSettings reconnect;
 } ProgramConfig;
 
 bool CreateDefaultConfig(const char *filename);
 bool CreateDefaultProgramConfig(const char *filename);
 
 bool LoadConfig(struct Connection *c, const char *filename);
-ProgramConfig LoadProgramConfig(const char *filepath);
+bool LoadProgramConfig(const char *filepath, ProgramConfig *program);
+
+/* Parse a number with an optional K/M/B suffix, e.g. "1.5M" -> 1500000. */
+uint64_t parse_number_u64(const char *str);
 
 #endif

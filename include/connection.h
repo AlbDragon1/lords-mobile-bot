@@ -23,6 +23,8 @@
 
 
 #include "des.h"
+#include "reconnect.h"
+#include <time.h>
 
 #include <sys/epoll.h>
 
@@ -862,11 +864,13 @@ typedef struct Connection {
 	
 	AllianceMemberList alliance_member;
 	
-	bool auto_reconnect;
-	// uint16_t reconnect_delay;
-	uint32_t reconnect_max_attempts;
-	uint32_t reconnect_attempt;
-	time_t reconnect_time;
+	// Auto-reconnect (settings come from program.cfg)
+	ReconnectSettings reconnect;
+	uint32_t reconnect_attempt;   // Consecutive failed attempts.
+	time_t reconnect_time;        // When to try again (CONN_RECONNECTING).
+	time_t session_start;         // When the current session connected.
+	time_t last_recv;             // Last time any data arrived from the server.
+	SessionResult end_reason;     // Why the last session ended.
 	
 	BankData bank_data;
 } Connection;

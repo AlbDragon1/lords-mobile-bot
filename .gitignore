@@ -1,0 +1,7 @@
+# Build output
+build/
+
+# Local configuration (contains account credentials)
+program.cfg
+configs/
+*.tmp

@@ -57,15 +57,16 @@ void disconnect(Connection *c)
 {
     if (c->sock >= 0)
         close_socket(c->sock);
-        c->sock = -1;
+
+    c->sock = -1;
 }
 
 
 void reset_connection(Connection *c)
 {
+    memset(c, 0, sizeof(*c));
+
     c->sock = -1;
-    
-    memset(&c, 0, sizeof(c));
 }
 
 bool ConnectServer(Connection *c, const char *ip, unsigned short port)
@@ -80,13 +81,9 @@ bool ConnectServer(Connection *c, const char *ip, unsigned short port)
 	/* Set non-blocking mode */
 	int flags = fcntl(c->sock, F_GETFL, 0);
 	
-	if (flags == -1) {
+	if (flags == -1 || fcntl(c->sock, F_SETFL, flags | O_NONBLOCK) == -1) {
 		close(c->sock);
-		return false;
-	}
-	
-	if (fcntl(c->sock, F_SETFL, flags | O_NONBLOCK) == -1) {
-		close(c->sock);
+		c->sock = -1;
 		return false;
 	}
 	
@@ -99,6 +96,7 @@ bool ConnectServer(Connection *c, const char *ip, unsigned short port)
 	if (inet_pton(AF_INET, ip, &serv_addr.sin_addr) <= 0) {
 		LOGE("Invalid server address: %s\n", ip);
 		close_socket(c->sock);
+		c->sock = -1;
 		return false;
 	}
 	
@@ -120,6 +118,7 @@ bool ConnectServer(Connection *c, const char *ip, unsigned short port)
 	LOGE("connect() failed: %s\n", strerror(errno));
 	
 	close(c->sock);
+	c->sock = -1;
 	return false;
 }
 

@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 #include "log.h"
 
 void FormatNumber(uint64_t value, char *buffer, size_t size)
