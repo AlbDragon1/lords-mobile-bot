@@ -26,8 +26,10 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 #include "des.h"
+#include "reconnect.h"
 
 typedef enum {
 	EMS_Null,
@@ -916,6 +918,9 @@ typedef struct {
 	ResourceTransfer transfer;
 	
 	AllianceMemberList alliance_member;
+	
+	ReconnectSettings reconnect;
+	time_t last_recv;   // Last time any data arrived from the server.
 } Connection;
 
 /* API */

@@ -84,7 +84,7 @@ build.bat
 Or compile directly with GCC:
 
 ```bat
-gcc -O2 -Iinclude src\main.c src\connection.c src\log.c src\protocol.c src\des.c src\map_point.c src\command.c src\config.c -o client.exe -lws2_32
+gcc -O2 -Iinclude src\main.c src\connection.c src\log.c src\protocol.c src\des.c src\map_point.c src\command.c src\config.c src\reconnect.c -o client.exe -lws2_32
 ```
 
 The Windows build links against `ws2_32` (Winsock); CMake and `build.bat` handle
@@ -143,11 +143,48 @@ Run the bot:
 ./client config.cfg
 ```
 
+## Auto-Reconnect
+
+If the connection drops, the bot logs in again automatically with an increasing
+delay (5s, 10s, 20s, ... up to 5 minutes). If you log in to the same account on
+your phone, the bot waits 10 minutes before reconnecting. Press `Ctrl+C` to stop.
+See [docs/configuration.md](docs/configuration.md#auto-reconnect) for options.
+
+## Chat Commands
+
+Players send commands in the channel set by `command.input`, starting with
+`command.prefix` (default `$`). The bot replies through `command.output`.
+
+| Command | Who | Description |
+| --- | --- | --- |
+| `$food <amount>` | anyone* | Send food, e.g. `$food 10M` |
+| `$stone <amount>` | anyone* | Send stone |
+| `$wood <amount>` | anyone* | Send wood |
+| `$ore <amount>` | anyone* | Send ore |
+| `$gold <amount>` | anyone* | Send gold |
+| `$stop` | requester / admin | Cancel the current transfer |
+| `$status` | anyone | Show bank and transfer status |
+| `$help` | anyone | List commands |
+| `$bank bal` | admin | Show resources in the city and bag |
+| `$su <name>` | admin | Make another player the admin |
+
+\* Only when `bank.enabled = true` and the resource's `bank.send_*` option is on.
+The admin bypasses both checks.
+
+## Running Tests
+
+```bash
+cmake -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
 ## Project Structure
 
 ```
 include/        Header files
 src/            Source code
+tests/          Unit tests (CTest)
 CMakeLists.txt  CMake build configuration
 build.sh        Build helper script (Linux / macOS)
 build.bat       Build helper script (Windows / MinGW)

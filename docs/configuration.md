@@ -31,6 +31,16 @@ The bot loads the configuration file from the current directory when starting:
 
 ## Configuration Format
 
+Notes on parsing:
+
+- Booleans accept `true`/`false` (also `yes`/`no`, `on`/`off`, `1`/`0`).
+- Amounts accept `K`, `M` and `B` suffixes, e.g. `20M` or `1.5m`.
+- Spaces around keys and values are ignored.
+- An invalid value stops the bot with an error naming the line.
+- An unknown key prints a warning (check for typos) and is ignored.
+- `account.igg_id`, `account.device_uuid` and `account.access_key` are required.
+
+
 The configuration file uses a simple key-value format:
 
 ```cfg
@@ -85,6 +95,40 @@ client.language_code = 1
 
 ---
 
+## Auto-Reconnect
+
+The bot reconnects automatically when the connection drops, the server stops
+responding, or the game server closes the session.
+
+```cfg
+reconnect.enabled = true
+reconnect.delay = 5
+reconnect.max_delay = 300
+reconnect.max_attempts = 0
+reconnect.kicked_delay = 600
+reconnect.timeout = 90
+```
+
+| Option | Description |
+| --- | --- |
+| `reconnect.enabled` | Master switch. When `false`, the bot exits when the session ends. |
+| `reconnect.delay` | Seconds before the first retry. Doubles after each failed attempt (5, 10, 20, ...). |
+| `reconnect.max_delay` | Upper limit for the retry delay. |
+| `reconnect.max_attempts` | Give up after this many failures in a row. `0` retries forever. |
+| `reconnect.kicked_delay` | Seconds to wait when the account is logged in from another device, so the bot doesn't keep kicking you out while you play. |
+| `reconnect.timeout` | Seconds without any data from the server before the connection is considered dead. `0` disables it; otherwise at least `30`. |
+
+A session that stays connected for 5 minutes resets the backoff.
+
+The bot does **not** reconnect when retrying cannot help:
+
+- the client version is outdated (update `client.version_*`)
+- the access key has expired (update `account.access_key`)
+
+Press `Ctrl+C` to stop the bot at any time, including while it waits to reconnect.
+
+---
+
 ## Data Path
 
 Directory used to store bot data such as logs, databases, and cache.
@@ -99,11 +143,15 @@ data.path = ./data/
 
 Defines the privileged player.
 
-This player can execute administrator commands and bypass normal restrictions.
+This player can execute administrator commands (`$bank bal`, `$su`) and bypass
+normal banking restrictions (`bank.enabled`, `bank.send_*`).
 
 ```cfg
-admin.name = halloweeks
+admin.name = YourName
 ```
+
+Leave it empty to disable admin commands. Only the current admin can hand admin
+rights to another player with `$su <name>`.
 
 ---
 
@@ -166,7 +214,7 @@ Master switch for the banking system.
 bank.enabled = false
 ```
 
-When disabled, all banking commands are ignored.
+When disabled, all banking commands are ignored (except from the admin).
 
 ### Allowed Resources
 

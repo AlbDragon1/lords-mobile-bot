@@ -25,6 +25,9 @@
 #include "config.h"
 
 #include "version.h"
+#include "reconnect.h"
+
+#include <signal.h>
 
 #define SERVER_ADDR "192.243.44.63"
 #define SERVER_PORT 5999
@@ -116,15 +119,18 @@ void logger(Connection *c) {
 	
 }
 
-void ProcessConnection(Connection *c)
+SessionResult ProcessConnection(Connection *c)
 {
 	PacketStream *s = &c->stream;
 	
 	map_pos_t pos;
 	
-	time_t last_update = time(NULL);
+	c->last_recv = time(NULL);
 	
 	while (1) {
+		if (StopRequested())
+			return SESSION_STOPPED;
+		
 		// Tick 
 		BotTick(c);
 		
@@ -142,27 +148,39 @@ void ProcessConnection(Connection *c)
 		
 		if (n > 0) {
 			s->read_pos += n;
+			c->last_recv = time(NULL);
 		}
 		else if (n == 0) {
-			LOGI("Disconnected\n");
-			break;
+			LOGW("Server closed the connection\n");
+			return SESSION_DISCONNECTED;
 		}
 		else {
 			// non-blocking case
 #ifdef _WIN32
-			if (WSAGetLastError() == WSAEWOULDBLOCK) {
-				Sleep(1);
-				continue; // no more data right now
-			}
+			bool would_block = (WSAGetLastError() == WSAEWOULDBLOCK);
 #else
-			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			bool would_block = (errno == EAGAIN || errno == EWOULDBLOCK);
+#endif
+			if (would_block) {
+				// Nothing received for too long: the connection is dead.
+				if (c->reconnect.timeout && time(NULL) - c->last_recv >= (time_t)c->reconnect.timeout) {
+					LOGW("No data from server for %u seconds\n", c->reconnect.timeout);
+					return SESSION_TIMEOUT;
+				}
+#ifdef _WIN32
+				Sleep(1);
+#else
 				usleep(1000);
+#endif
 				continue; // no more data right now
 			}
-#endif
 
-			LOGE("Recv error\n");
-			break;
+#ifdef _WIN32
+			LOGW("Connection error (WSA %d)\n", WSAGetLastError());
+#else
+			LOGW("Connection error: %s\n", strerror(errno));
+#endif
+			return SESSION_DISCONNECTED;
 		}
 		
 		while (s->read_pos - s->parse_pos >= 4) {
@@ -187,25 +205,30 @@ void ProcessConnection(Connection *c)
 					HandleLoginValidate(c, s->buffer + s->parse_pos + 4, s->packet_size - 4);
 					// HandleClientGuestLogin(c, s->buffer + s->parse_pos + 4, packet_size - 4);
 					LOGI("Gateway Login success!\n");
-					LOGI("Gateway server disconnected\n");
 					disconnect(c);
-					return;
+					return SESSION_GATEWAY_OK;
 				case _MSG_GAMESERVER_LOGINLOG: 
 					// kind = read_u16(s->buffer + s->parse_pos + 4);
 					LOGI("Game login successful\n");
 					// ServerInitOver(c);
 					break;
-				case _MSG_LOGIN_LOGINERRORRESP: 
+				case _MSG_LOGIN_LOGINERRORRESP: {
+					uint8_t kind = read_u8(s->buffer + s->parse_pos + 4);
 					RecvLoginError(c, s->buffer + s->parse_pos + 4);
 					disconnect(c);
-					// printf("Login error\n");
-					return;
+					
+					if (kind == 110)   // client version outdated
+						return SESSION_FATAL;
+					if (kind == 9)     // logged in from another device
+						return SESSION_KICKED;
+					return SESSION_DISCONNECTED;
+				}
 				case _MSG_CLIENT_LOGINTOLRESP: 
 					// kind = read_i32(s->buffer + s->parse_pos + 4);
 					
-					LOGE("Bootstrap Login failed session expired: %d\n", 0/*kind*/);
+					LOGE("Bootstrap login failed: session expired, update account.access_key\n");
 					disconnect(c);
-					return;
+					return SESSION_FATAL;
 				case _MSG_RESP_ACTIVE: 
 					c->server_time = read_u64(s->buffer + s->parse_pos + 4);
 					break;
@@ -284,7 +307,7 @@ void ProcessConnection(Connection *c)
 					
 					command_handler(c, c->mail.sender_name, c->mail.content);
 					
-					if (c->chat.message[0] != c->bot.command_prefix) {
+					if (c->mail.content[0] != c->bot.command_prefix) {
 						printf("[MAIL] [%s]: %s\n", c->mail.sender_name, c->mail.content);
 					}
 					break;
@@ -380,7 +403,7 @@ void ProcessConnection(Connection *c)
 					// dump_data("_MSG_RESP_JOINED_RALLYDATA", "", s->buffer + s->parse_pos + 4, s->packet_size + 4);
 					break;
 				case _MSG_RESP_RESEARCHINFO:
-					RecvTechnologyInfo(c, s->buffer + s->parse_pos + 4, s->packet_size + 4);
+					RecvTechnologyInfo(c, s->buffer + s->parse_pos + 4, s->packet_size - 4);
 					// dump_data("_MSG_RESP_RESEARCHINFO", "", s->buffer + s->parse_pos + 4, s->packet_size + 4);
 					break;
 				case _MSG_RESP_ADDCONFLICT_LINE: 
@@ -433,174 +456,6 @@ void ProcessConnection(Connection *c)
 }
  
 
-// Configuration settings 
-void Configuration(Connection *client)
-{
-	
-	// Default settings
-	// Command prefix
-	client->bot.command_prefix = '$';
-	// Data folder 
-	strcpy(client->bot.data_path, "./lmbot/");
-	// default admin
-	strcpy(client->bot.admin_name, "halloweeks");
-	
-	/*
-	client->lobby_server_addr = 0;
-	client->lobby_server_port = 0;
-	
-	client->game_server_addr = 0;
-	client->game_server_port = 0;
-	*/
-	
-	// Game Version And Language
-	client->app.version_major = 2;
-	client->app.version_minor = 197;
-	client->app.version_patch = 307;
-	client->app.language_code = 1;   // g_config.language_code;
-	
-	
-	
-	
-	
-	// client->cargo_ship.settings.auto_trade = true;
-	
-	
-	// Automatically purchase desired Black Market (Cargo ship) items.
-	client->market.settings.auto_trade = true;
-	
-	// Minimum resources to keep after market purchases.
-	client->market.reserve.food = 0;
-	client->market.reserve.rock = 0;
-	client->market.reserve.wood = 0;
-	client->market.reserve.ore  = 0;
-	client->market.reserve.gold = 0;
-	
-	// Allow these resources to be spent on Black Market trades.
-	client->market.settings.spend_food = true;
-	client->market.settings.spend_rock = true;
-	client->market.settings.spend_wood = true;
-	client->market.settings.spend_ore  = true;
-	client->market.settings.spend_gold = true;
-	
-	// Guild Auto help
-	client->alliance.auto_help = true;
-	
-	// Open alliance gifts
-	client->alliance.auto_open_gifts = true; // Guild Gift will not open auto if set false 
-	
-	
-	// Master switch for the protection system.
-	client->protection.enabled = true;
-	
-	/* Shield */
-	client->protection.shield_always_on = false; // shield 24/7
-	client->protection.shield_on_incoming_attack = true; // shield when army invading 
-	client->protection.shield_on_incoming_scout = true; // shield when scout approach
-	
-	/* Shield priority order.
-	 * The bot tries shields from highest priority to lowest priority.
-	 * If the first shield is unavailable, it falls back to the next available shield.
-	 */
-	client->protection.shield_priority_count = 4;
-	client->protection.shield_priority[0] = SHIELD_4H;  // Priority 1
-	client->protection.shield_priority[1] = SHIELD_8H;  // Priority 2
-	client->protection.shield_priority[2] = SHIELD_12H; // Priority 3
-	client->protection.shield_priority[3] = SHIELD_1D;  // Priority 4
-	
-	// Additional shields available for fallback.
-	// Currently not included in the priority list above.
-	client->protection.shield_priority[4] = SHIELD_3D;
-	client->protection.shield_priority[5] = SHIELD_7D;
-	client->protection.shield_priority[6] = SHIELD_14D;
-	
-	/* Troop recall */
-	// Recalls targeted camped or gathering troops.
-	client->protection.recall_on_incoming_attack = true;
-	client->protection.recall_on_incoming_scout = true;
-	
-	// Automatically recalls a gathering or camp march before it reaches
-	// its destination when an incoming conflict is detected.
-	// Requires Withdraw Squad items; otherwise no action is taken.
-	client->protection.recall_on_incoming_conflict = true;
-	
-	// client->protection.shelter_always = false;
-	// client->protection.shelter_leader = true;
-	// client->protection.shelter_troops = false;
-	// client->protection.shelter_on_incoming_attack = true;
-	// client->protection.shelter_on_incoming_scout = true;
-	
-	/*
-	 * Darknest Configuration 
-	 * Automatic Darknest settings
-	 * Currently core logic not implemented yet
-	 */ 
-	client->darknest.auto_join = true;
-	client->darknest.min_level = 4;
-	client->darknest.max_level = 6;
-	
-	// Maximum number of marches the bot can use for Darknest rallies at the same time (if available)
-	client->darknest.max_march = 2;
-	
-	// Automatically set Darknest essence in Transmutation Lab
-	client->darknest.auto_transmute = true;
-	
-	// Desired essence level
-	client->darknest.essence_level = 18;
-	
-	// Do not join if the rally host is more than 200 miles away.
-	client->darknest.max_distance = 200; 
-	
-	// Total troops to send when joining Darknest rally.
-	client->darknest.troop_count = 200000;
-	
-	// Minimum troops required; if available troops cannot reach this, do not join.
-	client->darknest.min_join_troops = 150000;
-	
-	client->darknest.formation_mode = DARKNEST_FORMATION_LEADER;
-	
-	// Used only when formation_mode == DARKNEST_FORMATION_FIXED
-	// Troop ratio (8480 = 80% Inf, 40% Ranged, 80% Cavalry, 0% Siege).
-	client->darknest.formation = 8480;
-	
-	// Join random delay between.
-	client->darknest.min_join_delay = 3;
-	client->darknest.max_join_delay = 180;
-	
-	// Darknest troop priority order: bot tries higher tier troops first (T5 → T1) when selecting troops for rally join.
-	client->darknest.tier_priority_count = 3;
-	client->darknest.tier_order[0] = TIER_T5; // T5
-	client->darknest.tier_order[1] = TIER_T4;
-	client->darknest.tier_order[2] = TIER_T3;
-	client->darknest.tier_order[3] = TIER_T2;
-	client->darknest.tier_order[4] = TIER_T1;
-	
-	
-	// currently no banking system implemented 
-	client->bank.enabled   = true;
-	client->bank.send_food = true;
-	client->bank.send_rock = true;
-	client->bank.send_wood = true;
-	client->bank.send_ore  = true;
-	client->bank.send_gold = true;
-	
-	client->bank.reserve.food = 0;
-	client->bank.reserve.rock = 0;
-	client->bank.reserve.wood = 0;
-	client->bank.reserve.ore  = 0;
-	client->bank.reserve.gold = 0;
-	
-	client->bank.max_delivery_distance = 100;
-	
-	client->bank.use_bag_rss  = false;
-	client->bank.use_bag_food = false;
-	client->bank.use_bag_rock = false;
-	client->bank.use_bag_wood = false;
-	client->bank.use_bag_ore  = false;
-	client->bank.use_bag_gold = false;
-	
-}
-
 void PrintUsage(void)
 {
 	printf(
@@ -630,6 +485,14 @@ void PrintVersion(void)
 
 bool CreateDefaultConfig(const char *filename)
 {
+	// Never overwrite an existing configuration (it contains account credentials).
+	FILE *existing = fopen(filename, "r");
+	if (existing) {
+		fclose(existing);
+		printf("[ERROR] %s already exists; delete or rename it first.\n", filename);
+		return false;
+	}
+	
 	FILE *fp = fopen(filename, "w");
 	
 	if (!fp)
@@ -651,12 +514,27 @@ bool CreateDefaultConfig(const char *filename)
 		"client.version_patch = 308\n"
 		"client.language_code = 1\n\n"
 		
+		"# Auto-reconnect\n"
+		"# Reconnect automatically when the connection is lost.\n"
+		"reconnect.enabled = true\n"
+		"# First retry delay in seconds; doubles after each failure up to max_delay.\n"
+		"reconnect.delay = 5\n"
+		"reconnect.max_delay = 300\n"
+		"# Give up after this many failed attempts in a row (0 = never give up).\n"
+		"reconnect.max_attempts = 0\n"
+		"# Wait this long when the account is logged in from another device,\n"
+		"# so the bot does not keep kicking you off your phone.\n"
+		"reconnect.kicked_delay = 600\n"
+		"# Treat the connection as dead after this many seconds without data (0 = off).\n"
+		"reconnect.timeout = 90\n\n"
+		
 		"# Directory used to store bot data (logs, databases, cache, etc.).\n"
-		"data.path = /sdcard/lmbot/\n\n"
+		"data.path = ./lmbot/\n\n"
 		
 		"# Privileged player.\n"
 		"# This player can execute administrator commands and bypass normal restrictions.\n"
-		"admin.name = halloweeks\n\n"
+		"# Leave empty to disable admin commands.\n"
+		"admin.name = \n\n"
 		
 		"# Replace the example values below with your own account information.\n"
 		"account.igg_id = 1234567890\n"
@@ -704,11 +582,11 @@ bool CreateDefaultConfig(const char *filename)
 		"bank.use_bag_ore  = false\n"
 		"bank.use_bag_gold = false\n\n"
 		
-		/*
 		"# Alliance\n"
+		"# Automatically help alliance members.\n"
 		"alliance.auto_help = false\n"
+		"# Automatically open alliance gifts.\n"
 		"alliance.auto_open_gifts = false\n\n"
-		*/
 		
 		
 		"# Enable or disable all automatic protection features.\n"
@@ -777,7 +655,94 @@ bool CreateDefaultConfig(const char *filename)
     return true;
 }
 
+// Loaded configuration. Each session starts from a fresh copy of it so no
+// stale game state carries over between reconnects.
+static Connection config;
+static Connection client;
+
+static void HandleStopSignal(int sig)
+{
+	(void)sig;
+	RequestStop();
+}
+
+/* Start a new session from the configuration, keeping settings changed at runtime. */
+static void ResetSession(Connection *c)
+{
+	BotSettings bot = c->bot;
+	bool keep = c->auth.igg_id != 0; // first session has nothing to keep
+	
+	memcpy(c, &config, sizeof(*c));
+	c->sock = -1;
+	
+	// Admin may have been changed with $su
+	if (keep)
+		c->bot = bot;
+}
+
+/* One full login: gateway server, then game server. Returns why it ended. */
+static SessionResult RunSession(Connection *c)
+{
+	ResetSession(c);
+	
+	// Establish TCP connection to gateway server
+	c->sock = connect_server(c->gateway_server.addr, (unsigned short)c->gateway_server.port);
+	
+	if (c->sock == -1) {
+		LOGE("Failed to connect to %s:%u\n", c->gateway_server.addr, c->gateway_server.port);
+		return SESSION_DISCONNECTED;
+	}
+	
+	if (set_nonblocking(c) != 0) {
+		LOGE("set_nonblocking\n");
+	}
+	
+	LOGI("Connected gateway server: %s:%u\n", c->gateway_server.addr, c->gateway_server.port);
+	LOGI("Game client: v%u.%u.%u\n", c->app.version_major, c->app.version_minor, c->app.version_patch);
+	
+	RequestGuestLogIn(c);
+	
+	SessionResult result = ProcessConnection(c);
+	
+	if (result != SESSION_GATEWAY_OK)
+		return result;
+	
+	if (!c->lobby_login) {
+		LOGE("Login failed!\n");
+		return SESSION_DISCONNECTED;
+	}
+	
+	// Establish TCP connection to game server 
+	c->sock = connect_server(c->game_server.addr, (unsigned short)c->game_server.port);
+	
+	if (c->sock == -1) {
+		LOGE("Failed to connect game server %s:%u\n", c->game_server.addr, c->game_server.port);
+		return SESSION_DISCONNECTED;
+	}
+	
+	if (set_nonblocking(c) != 0) {
+		LOGE("set_nonblocking\n");
+	}
+	
+	LOGI("IGG ID: %lld\n", (long long)c->auth.igg_id);
+	LOGI("Connected game server: %s:%u\n", c->game_server.addr, c->game_server.port);
+	
+	// clear old buffer 
+	memset(&c->stream, 0, sizeof(c->stream));
+	
+	// Game login
+	LOGI("Logging game server\n");
+	RequestLogIn(c);
+	
+	RequestClientInitOver(c);
+	
+	return ProcessConnection(c);
+}
+
 int main(int argc, const char *argv[]) {
+	// Line-buffered output keeps log lines in order when redirected to a file.
+	setvbuf(stdout, NULL, _IOLBF, 0);
+	
 	if (argc < 2) {
 		PrintUsage();
 		return 0;
@@ -806,7 +771,7 @@ int main(int argc, const char *argv[]) {
 #ifdef _WIN32
 	WSADATA wsa;
 	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
-		LOGE("WSAStartup failed");
+		LOGE("WSAStartup failed\n");
 		return 1;
 	}
 #endif
@@ -816,68 +781,63 @@ int main(int argc, const char *argv[]) {
         return EXIT_FAILURE;
     }
 	
-	Connection client = {0};
-	
-	// Configuration(&client);
-	
-	if (!LoadConfig(&client, argv[1])) {
+	if (!LoadConfig(&config, argv[1])) {
 		LOGE("Failed to load config\n");
 		return EXIT_FAILURE;
 	}
 	
 	LOGI("Configuration loaded\n");
 	
-	// Establish TCP connection to server and store socket descriptor in client
-	client.sock = connect_server(client.gateway_server.addr, client.gateway_server.port);
+	signal(SIGINT, HandleStopSignal);
+	signal(SIGTERM, HandleStopSignal);
 	
-	// Validate socket creation; -1 indicates connection failure
-	if (client.sock == -1) {
-		LOGE("Failed to connect to %s:%d\n", client.gateway_server.addr, client.gateway_server.port);
-		return EXIT_FAILURE;
-	}
+	const ReconnectSettings *rs = &config.reconnect;
+	uint32_t failures = 0;
 	
-	LOGI("Connected gateway server: %s:%u\n", client.gateway_server.addr, client.gateway_server.port);
-	LOGI("Game client: v%u.%u.%u\n", client.app.version_major, client.app.version_minor, client.app.version_patch);
-	
-	RequestGuestLogIn(&client);
+	while (1) {
+		time_t started = time(NULL);
+		SessionResult result = RunSession(&client);
 		
-	ProcessConnection(&client);
-	
-	if (!client.lobby_login) {
-		LOGE("Login failed!\n");
-		return EXIT_FAILURE;
+		disconnect(&client);
+		
+		if (result == SESSION_STOPPED || StopRequested()) {
+			LOGI("Stopped\n");
+			break;
+		}
+		
+		if (result == SESSION_FATAL) {
+			LOGE("Not reconnecting: fix the problem above and restart the bot\n");
+			return EXIT_FAILURE;
+		}
+		
+		if (!rs->enabled) {
+			LOGI("Session ended (%s); reconnect disabled\n", SessionResultName(result));
+			return EXIT_FAILURE;
+		}
+		
+		// A session that stayed up for a while counts as a success: reset the backoff.
+		if (time(NULL) - started >= 300)
+			failures = 0;
+		
+		failures++;
+		
+		if (rs->max_attempts && failures > rs->max_attempts) {
+			LOGE("Giving up after %u failed reconnect attempts\n", rs->max_attempts);
+			return EXIT_FAILURE;
+		}
+		
+		uint32_t delay = (result == SESSION_KICKED)
+			? rs->kicked_delay
+			: ReconnectDelay(rs, failures);
+		
+		LOGW("Session ended (%s). Reconnecting in %u seconds (attempt %u)...\n",
+			SessionResultName(result), delay, failures);
+		
+		if (!InterruptibleSleep(delay)) {
+			LOGI("Stopped\n");
+			break;
+		}
 	}
-	
-	// Establish TCP connection to game server 
-	client.sock = connect_server(client.game_server.addr, client.game_server.port);
-	
-	if (client.sock == -1) {
-		// LOGE("Failed to connect game server!");
-		LOGE("Failed to connect game server %s:%d\n", client.game_server.addr, client.game_server.port);
-		return EXIT_FAILURE;
-	}
-	
-	if (set_nonblocking(&client) != 0) {
-		LOGE("set_nonblocking\n");
-	}
-	
-	LOGI("IGG ID: %lu\n", client.auth.igg_id);
-	
-	LOGI("Connected game server: %s:%u\n", client.game_server.addr, client.game_server.port);
-	
-	// clear old buffer 
-	memset(&client.stream, 0, sizeof(client.stream));
-	
-	// Game login
-	LOGI("Logging game server\n");
-	RequestLogIn(&client);
-	
-	RequestClientInitOver(&client);
-	
-	// Handle 
-	ProcessConnection(&client);
-	
-	disconnect(&client);
 	
 	return 0;
 }

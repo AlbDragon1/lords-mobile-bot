@@ -146,6 +146,7 @@ void RecvHelp_Home(Connection *c, const uint8_t *data);
 
 
 void format_number2(uint64_t num, char *out, size_t size);
+const char *GetResourceName(ResourceType type);
 
 void RecvAllianceMemberInfo(Connection *c, const uint8_t *data);
 void RequestAllianceMemberInfo(Connection *c);
