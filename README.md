@@ -143,11 +143,41 @@ Run the bot:
 ./client config.cfg
 ```
 
+## Chat Commands
+
+Players send commands in the channel set by `command.input`, starting with
+`command.prefix` (default `$`). The bot replies through `command.output`.
+
+| Command | Who | Description |
+| --- | --- | --- |
+| `$food <amount>` | anyone* | Send food, e.g. `$food 10M` |
+| `$stone <amount>` | anyone* | Send stone |
+| `$wood <amount>` | anyone* | Send wood |
+| `$ore <amount>` | anyone* | Send ore |
+| `$gold <amount>` | anyone* | Send gold |
+| `$stop` | requester / admin | Cancel the current transfer |
+| `$status` | anyone | Show bank and transfer status |
+| `$help` | anyone | List commands |
+| `$bank bal` | admin | Show resources in the city and bag |
+| `$su <name>` | admin | Make another player the admin |
+
+\* Only when `bank.enabled = true` and the resource's `bank.send_*` option is on.
+The admin bypasses both checks.
+
+## Running Tests
+
+```bash
+cmake -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
 ## Project Structure
 
 ```
 include/        Header files
 src/            Source code
+tests/          Unit tests (CTest)
 CMakeLists.txt  CMake build configuration
 build.sh        Build helper script (Linux / macOS)
 build.bat       Build helper script (Windows / MinGW)

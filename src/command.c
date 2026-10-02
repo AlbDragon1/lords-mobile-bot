@@ -2,6 +2,7 @@
 #include <ctype.h>
 #include "items.h"
 #include "protocol.h"
+#include "config.h"
 
 /*
  * NOTE:
@@ -30,136 +31,244 @@ void format_number2(uint64_t num, char *out, size_t size) {
 
 void ShowBankBalance(Connection *c, const char *player_name);
 
+static void ResourceCommandHandler(
+    Connection *c,
+    const char *player_name,
+    const char *message,
+    ResourceType type,
+    const char *name
+);
+
+static bool IsAdmin(const Connection *c, const char *player_name)
+{
+	return c->bot.admin_name[0] != '\0' && strcmp(c->bot.admin_name, player_name) == 0;
+}
+
+/*
+ * Match "<name>" or "<name> <args>" at the start of message.
+ * Returns a pointer to the arguments (empty string if none), or NULL.
+ */
+static const char *MatchCommand(const char *message, const char *name)
+{
+	size_t len = strlen(name);
+
+	if (strncmp(message, name, len) != 0)
+		return NULL;
+
+	if (message[len] == '\0')
+		return message + len;
+
+	if (message[len] == ' ')
+		return message + len + 1;
+
+	return NULL;
+}
 
 void SuperUserAccess(Connection *c,
                      const char *player_name,
                      const char *new_admin)
 {
-	
-	/*
-    // Only current admin may change admin 
-    if (strcmp(player_name, c->bot.admin_name) != 0)
-    {
-        RequestSendMail(
-            c,
-            player_name,
-            "Unauthorized",
-            "You don't have permission to grant admin access."
-        );
-        return;
-    }
-    */
+	// Only current admin may change admin
+	if (!IsAdmin(c, player_name)) {
+		RequestSendMail(
+			c,
+			player_name,
+			"Unauthorized",
+			"You don't have permission to grant admin access."
+		);
+		return;
+	}
 
-    snprintf(c->bot.admin_name,
-             sizeof(c->bot.admin_name),
-             "%s",
-             new_admin);
+	if (new_admin[0] == '\0' || strlen(new_admin) >= sizeof(c->bot.admin_name)) {
+		RequestSendMail(c, player_name, "Sudo access", "Invalid player name.");
+		return;
+	}
 
-    RequestSendMailFmt(
-        c,
-        player_name,
-        "Admin Updated",
-        "%s is now the system administrator.",
-        c->bot.admin_name
-    );
+	snprintf(c->bot.admin_name,
+	         sizeof(c->bot.admin_name),
+	         "%s",
+	         new_admin);
+
+	RequestSendMailFmt(
+		c,
+		player_name,
+		"Admin Updated",
+		"%s is now the system administrator.",
+		c->bot.admin_name
+	);
 }
+
+/* Cancel the current resource transfer. */
+static void StopCommandHandler(Connection *c, const char *player_name)
+{
+	if (c->transfer.state == TRANSFER_IDLE) {
+		RequestSendMail(c, player_name, "Transfer", "No transfer in progress.");
+		return;
+	}
+
+	// Only the requester or the admin may cancel
+	if (strcmp(c->transfer.target_name, player_name) != 0 && !IsAdmin(c, player_name)) {
+		RequestSendMailFmt(
+			c,
+			player_name,
+			"Transfer",
+			"Only %s or the admin can stop the current transfer.",
+			c->transfer.target_name
+		);
+		return;
+	}
+
+	char target[sizeof(c->transfer.target_name)];
+	snprintf(target, sizeof(target), "%s", c->transfer.target_name);
+
+	char sent_str[20];
+	format_number2(c->transfer.amount - c->transfer.remaining, sent_str, sizeof(sent_str));
+
+	memset(&c->transfer, 0, sizeof(c->transfer));
+	c->transfer.state = TRANSFER_IDLE;
+
+	RequestSendMailFmt(
+		c,
+		player_name,
+		"Transfer Stopped",
+		"Transfer to %s cancelled (%s already sent). Marches already on the way will still arrive.",
+		target,
+		sent_str
+	);
+}
+
+static void HelpCommandHandler(Connection *c, const char *player_name)
+{
+	char p = c->bot.command_prefix;
+
+	RequestSendMailFmt(
+		c,
+		player_name,
+		"Bot Commands",
+		"%cfood <amount>, %cstone <amount>, %cwood <amount>, %core <amount>, %cgold <amount>\n"
+		"  Request resources, e.g. %cfood 10M\n"
+		"%cstop - cancel your current transfer\n"
+		"%cstatus - show bot status\n"
+		"%chelp - show this message\n"
+		"Admin: %cbank bal, %csu <name>",
+		p, p, p, p, p, p, p, p, p, p, p
+	);
+}
+
+static void StatusCommandHandler(Connection *c, const char *player_name)
+{
+	const char *bank = c->bank.enabled ? "open" : "closed";
+
+	if (c->transfer.state == TRANSFER_IDLE) {
+		RequestSendMailFmt(c, player_name, "Bot Status", "Bank: %s\nTransfer: idle", bank);
+		return;
+	}
+
+	const char *state;
+
+	switch (c->transfer.state) {
+		case TRANSFER_FIND_TARGET:
+		case TRANSFER_WAIT_TARGET: state = "locating"; break;
+		case TRANSFER_SEND_MARCH:
+		case TRANSFER_WAIT_MARCH:  state = "sending"; break;
+		default:                   state = "finishing"; break;
+	}
+
+	char remaining[20];
+	format_number2(c->transfer.remaining, remaining, sizeof(remaining));
+
+	RequestSendMailFmt(
+		c,
+		player_name,
+		"Bot Status",
+		"Bank: %s\nTransfer: %s %s for %s (%s remaining)",
+		bank,
+		state,
+		GetResourceName(c->transfer.resource_type),
+		c->transfer.target_name,
+		remaining
+	);
+}
+
+typedef struct {
+	const char *name;
+	ResourceType type;
+} ResourceCommand;
+
+static const ResourceCommand resource_commands[] = {
+	{ "food",  RESOURCE_FOOD },
+	{ "stone", RESOURCE_ROCK },
+	{ "wood",  RESOURCE_WOOD },
+	{ "ore",   RESOURCE_ORE  },
+	{ "gold",  RESOURCE_GOLD },
+};
 
 void command_handler(Connection *c, const char *player_name, const char *message) {
 	if (c->bot.command_prefix == 0) return;
-	
+
 	if (message[0] != c->bot.command_prefix) return;
-	
-	message++; // skip prefix 
-	
-	// handle food command 
-	if (memcmp(message, "food", 4) == 0 && (message[4] == '\0' || message[4] == ' '))
-	{
-		// if (c->bank.enabled || strcmp(c->bot.admin_name, player_name) == 0) {
-			ResourceCommandHandler(c, player_name, message + 4, RESOURCE_FOOD, "food");
-		// }
+
+	message++; // skip prefix
+
+	const char *args;
+
+	// resource commands: food, stone, wood, ore, gold
+	for (size_t i = 0; i < sizeof(resource_commands) / sizeof(resource_commands[0]); i++) {
+		if ((args = MatchCommand(message, resource_commands[i].name)) != NULL) {
+			ResourceCommandHandler(c, player_name, args, resource_commands[i].type, resource_commands[i].name);
+			return;
+		}
+	}
+
+	if (MatchCommand(message, "stop") != NULL) {
+		StopCommandHandler(c, player_name);
 		return;
 	}
-	
-	// handle stone command
-	if (memcmp(message, "stone", 5) == 0 && (message[5] == '\0' || message[5] == ' '))
-	{
-		ResourceCommandHandler(c, player_name, message + 5, RESOURCE_ROCK, "stone");
+
+	if (MatchCommand(message, "help") != NULL) {
+		HelpCommandHandler(c, player_name);
 		return;
 	}
-	
-	// handle wood command
-	if (memcmp(message, "wood", 4) == 0 && (message[4] == '\0' || message[4] == ' '))
-	{
-		ResourceCommandHandler(c, player_name, message + 4, RESOURCE_WOOD, "wood");
+
+	if (MatchCommand(message, "status") != NULL) {
+		StatusCommandHandler(c, player_name);
 		return;
 	}
-	
-	// handle ore command
-	if (memcmp(message, "ore", 3) == 0 && (message[3] == '\0' || message[3] == ' '))
-	{
-		ResourceCommandHandler(c, player_name, message + 3, RESOURCE_ORE, "ore");
-		return;
-	}
-	
-	// handle gold command
-	if (memcmp(message, "gold", 4) == 0 && (message[4] == '\0' || message[4] == ' '))
-	{
-		ResourceCommandHandler(c, player_name, message + 4, RESOURCE_GOLD, "gold");
-		return;
-	}
-	
-	
-	if (memcmp(message, "bank bal", 8) == 0 && (message[8] == '\0' || message[8] == ' '))
-	{
+
+	if (MatchCommand(message, "bank bal") != NULL) {
 		ShowBankBalance(c, player_name);
 		return;
 	}
-	
-	if (memcmp(message, "su", 2) == 0)
-	{
-		if (message[2] == '\0') {
+
+	if ((args = MatchCommand(message, "su")) != NULL) {
+		if (args[0] == '\0') {
 			RequestSendMailFmt(
 				c,
 				player_name,
 				"Sudo access",
-				"Usage: %csu %s",
-				c->bot.command_prefix,
-				c->transfer.target_name
+				"Usage: %csu <player name>",
+				c->bot.command_prefix
 			);
 			return;
 		}
-		
-		if (message[2] == ' ') {
-			SuperUserAccess(c, player_name, message + 3);
-			return;
-		}
-		
+
+		SuperUserAccess(c, player_name, args);
 		return;
 	}
-	
 }
 
-uint64_t parse_number_u64(const char *str) {
-    double value = 0.0;
-    char suffix = '\0';
+static bool IsResourceAllowed(const Connection *c, ResourceType type)
+{
+	switch (type) {
+		case RESOURCE_FOOD: return c->bank.send_food;
+		case RESOURCE_ROCK: return c->bank.send_rock;
+		case RESOURCE_WOOD: return c->bank.send_wood;
+		case RESOURCE_ORE:  return c->bank.send_ore;
+		case RESOURCE_GOLD: return c->bank.send_gold;
+	}
 
-    // Read numeric part and optional suffix
-    sscanf(str, "%lf%c", &value, &suffix);
-    suffix = tolower(suffix); // handle both lowercase and uppercase
-
-    // Apply multiplier
-    switch (suffix) {
-        case 'k': value *= 1000ULL; break;
-        case 'm': value *= 1000000ULL; break;
-        case 'b': value *= 1000000000ULL; break;
-        default: break;//return 0;//break; // no suffix
-    }
-
-    if (value < 0) value = 0;
-
-    return (uint64_t)value;
+	return false;
 }
-
 
 static void ResourceCommandHandler(
     Connection *c,
@@ -169,6 +278,16 @@ static void ResourceCommandHandler(
     const char *name
 )
 {
+	bool admin = IsAdmin(c, player_name);
+	
+	// Bank closed: banking commands are ignored (admin may still use them)
+	if (!c->bank.enabled && !admin)
+		return;
+	
+	if (!IsResourceAllowed(c, type) && !admin) {
+		RequestSendMailFmt(c, player_name, "Not Available", "The bank does not send %s.", name);
+		return;
+	}
 	
 	if (c->transfer.state != TRANSFER_IDLE) {
 		// Same player -> replace current pending request 
@@ -193,13 +312,16 @@ static void ResourceCommandHandler(
 	
 	char amount_str[32] = {0};
 	
-	if (sscanf(message, "%31s", amount_str) != 1)
-		return;
+	uint64_t amount = 0;
 	
-	uint64_t amount = parse_number_u64(amount_str);
+	if (sscanf(message, "%31s", amount_str) == 1)
+		amount = parse_number_u64(amount_str);
 	
-	if (amount == 0 || amount > UINT32_MAX)
+	if (amount == 0 || amount > UINT32_MAX) {
+		RequestSendMailFmt(c, player_name, "Usage", "Usage: %c%s <amount>, e.g. %c%s 10M",
+			c->bot.command_prefix, name, c->bot.command_prefix, name);
 		return;
+	}
 	
 	uint32_t current = 0;
 	uint32_t reserve = 0;

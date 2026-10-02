@@ -31,6 +31,16 @@ The bot loads the configuration file from the current directory when starting:
 
 ## Configuration Format
 
+Notes on parsing:
+
+- Booleans accept `true`/`false` (also `yes`/`no`, `on`/`off`, `1`/`0`).
+- Amounts accept `K`, `M` and `B` suffixes, e.g. `20M` or `1.5m`.
+- Spaces around keys and values are ignored.
+- An invalid value stops the bot with an error naming the line.
+- An unknown key prints a warning (check for typos) and is ignored.
+- `account.igg_id`, `account.device_uuid` and `account.access_key` are required.
+
+
 The configuration file uses a simple key-value format:
 
 ```cfg
@@ -99,11 +109,15 @@ data.path = ./data/
 
 Defines the privileged player.
 
-This player can execute administrator commands and bypass normal restrictions.
+This player can execute administrator commands (`$bank bal`, `$su`) and bypass
+normal banking restrictions (`bank.enabled`, `bank.send_*`).
 
 ```cfg
-admin.name = halloweeks
+admin.name = YourName
 ```
+
+Leave it empty to disable admin commands. Only the current admin can hand admin
+rights to another player with `$su <name>`.
 
 ---
 
@@ -166,7 +180,7 @@ Master switch for the banking system.
 bank.enabled = false
 ```
 
-When disabled, all banking commands are ignored.
+When disabled, all banking commands are ignored (except from the admin).
 
 ### Allowed Resources
 

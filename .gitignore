@@ -1,1 +1,8 @@
 main.txt
+
+# Build output
+build/
+
+# Local configuration (contains account credentials)
+config.cfg
+*.tmp

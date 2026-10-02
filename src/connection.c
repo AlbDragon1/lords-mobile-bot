@@ -55,13 +55,14 @@ void disconnect(Connection *c)
 {
     if (c->sock >= 0)
         close_socket(c->sock);
-        c->sock = -1;
+
+    c->sock = -1;
 }
 
 
 void reset_connection(Connection *c)
 {
+    memset(c, 0, sizeof(*c));
+
     c->sock = -1;
-    
-    memset(&c, 0, sizeof(c));
 }
