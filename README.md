@@ -33,10 +33,17 @@ $wood <amount> [target name]
 $ore <amount> [target name]
 $gold <amount> [target name]
 
-$bal
-$abort
+$bal       (admin)
+$abort     (alias: $stop)
 $status
+$help
 ```
+
+`$abort` cancels the current transfer. It can be used by the player who asked
+for it, the player receiving it, or the admin.
+
+The admin (`admin.name`) can use resource commands even when `bank.enabled = false`
+or a resource is not allowed. Leave `admin.name` empty to disable admin rights.
 
 ### Resource Examples
 
@@ -120,7 +127,7 @@ cargo_ship.reserve_ore  = 10M
 cargo_ship.reserve_gold = 10M
 
 # Items the bot WILL buy.
-cargo_ship.trade_for_archaic_tomes     = false
+cargo_ship.trade_for_archaic_tome      = false
 cargo_ship.trade_for_bright_talent_orb = false
 cargo_ship.trade_for_exp_elixir        = false
 cargo_ship.trade_for_speed_up          = false
@@ -137,6 +144,49 @@ cargo_ship.trade_for_rock = true
 cargo_ship.trade_for_wood = true
 cargo_ship.trade_for_ore  = true
 cargo_ship.trade_for_gold = true
+```
+
+### Auto-Reconnect
+
+Set in `program.cfg`; applies to every bot. Each bot reconnects on its own
+schedule, so one bot failing does not affect the others.
+
+```ini
+reconnect.enabled = true
+# First retry delay in seconds; doubles after each failure (5, 10, 20, ...).
+reconnect.delay = 5
+reconnect.max_delay = 300
+# Give up after this many failures in a row (0 = never).
+reconnect.max_attempts = 0
+# Wait this long when the account is logged in from another device,
+# so the bot doesn't keep kicking you off your phone.
+reconnect.kicked_delay = 600
+# Treat a connection as dead after this many seconds without data (0 = off, else >= 30).
+reconnect.timeout = 90
+```
+
+- A session that stays connected for 5 minutes resets the backoff.
+- An outdated client version or expired access key stops that bot instead of retrying.
+- Each reconnect reloads the bot's config file, so edits take effect on the next reconnect.
+- Press `Ctrl+C` to stop all bots cleanly.
+
+### Config File Rules
+
+- Booleans accept `true`/`false` (also `yes`/`no`, `on`/`off`, `1`/`0`).
+- Amounts accept `K`, `M` and `B` suffixes, e.g. `20M` or `1.5m`.
+- An invalid value stops the bot with an error naming the file and line.
+- An unknown key prints a warning (check for typos) and is ignored.
+- `account.igg_id`, `account.device_uuid` and `account.access_key` are required.
+- `--create-config` never overwrites existing files.
+
+---
+
+## Running Tests
+
+```bash
+cmake -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
 ---
@@ -161,6 +211,7 @@ bgold 1M
 bbal
 babort
 bstatus
+bhelp
 ```
 
 ---
@@ -202,6 +253,7 @@ Packet handlers use an O(1) dispatcher table instead of a large packet switch.
 - [x] Non-blocking sockets
 - [x] O(1) packet dispatcher
 - [x] Modular architecture
+- [x] Auto-reconnect with exponential backoff
 
 ### Automation
 
